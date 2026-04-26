@@ -1,0 +1,218 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import type { Ignore } from 'ignore';
+import type { AppConfig } from './config.js';
+import { chunkByLines } from './chunker.js';
+import { embedTexts, getEmbedder } from './embedder.js';
+import type { MetaFile } from './meta.js';
+import { writeMeta } from './meta.js';
+import {
+  isSafetyIgnored,
+  relativePosix,
+  shouldConsiderExtension,
+} from './path-filters.js';
+import { isCoveredByForceInclude } from './force-include.js';
+import { isIgnored, normalizeIgnorePath } from './gitignore.js';
+import type { ChunkRow } from './store.js';
+import { ChunkStore } from './store.js';
+
+/** Rough token-safe limit for MiniLM-class models (chars, not tokens). */
+const MAX_CHUNK_CHARS = 12_000;
+
+function sha256Hex(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+async function walkFiles(
+  dir: string,
+  watchRootAbs: string,
+  ig: Ignore,
+  forceIncludes: string[],
+): Promise<string[]> {
+  const out: string[] = [];
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    const rel = normalizeIgnorePath(relativePosix(watchRootAbs, abs));
+    if (isSafetyIgnored(rel)) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      const dirIgnored = isIgnored(ig, `${rel}/`, true);
+      if (dirIgnored && !isCoveredByForceInclude(rel, forceIncludes)) {
+        continue;
+      }
+      out.push(...(await walkFiles(abs, watchRootAbs, ig, forceIncludes)));
+    } else {
+      if (isIgnored(ig, rel, false) && !isCoveredByForceInclude(rel, forceIncludes)) {
+        continue;
+      }
+      if (!shouldConsiderExtension(abs)) {
+        continue;
+      }
+      out.push(abs);
+    }
+  }
+  return out;
+}
+
+export class Indexer {
+  private chain: Promise<void> = Promise.resolve();
+  private meta: MetaFile;
+
+  constructor(
+    private readonly config: AppConfig,
+    private readonly ig: Ignore,
+    readonly store: ChunkStore,
+    meta: MetaFile,
+  ) {
+    this.meta = meta;
+  }
+
+  private enqueue(fn: () => Promise<void>): void {
+    this.chain = this.chain.then(fn).catch((error) => {
+      console.error('[codebase-mcp] indexer error:', error);
+    });
+  }
+
+  private async persistMeta(): Promise<void> {
+    await writeMeta(this.config.metaPathAbs, this.meta);
+  }
+
+  async indexAbsoluteFile(absPath: string): Promise<void> {
+    const rel = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
+    if (isSafetyIgnored(rel)) {
+      return;
+    }
+    if (isIgnored(this.ig, rel, false) && !isCoveredByForceInclude(rel, this.config.forceIncludeRelPosix)) {
+      return;
+    }
+    if (!shouldConsiderExtension(absPath)) {
+      return;
+    }
+    let st: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      st = await fs.stat(absPath);
+    } catch {
+      await this.removeRelativePath(rel);
+      return;
+    }
+    if (!st.isFile()) {
+      return;
+    }
+    if (st.size > this.config.maxFileBytes) {
+      return;
+    }
+    let content: string;
+    try {
+      content = await fs.readFile(absPath, 'utf8');
+    } catch {
+      return;
+    }
+    const hash = sha256Hex(content);
+    if (this.meta.fileHashes[rel] === hash) {
+      return;
+    }
+    const extractor = await getEmbedder(this.config);
+    const chunks = chunkByLines(content, this.config.chunkLines, this.config.chunkOverlapLines);
+    if (chunks.length === 0) {
+      await this.store.deleteByPath(rel);
+      this.meta.fileHashes[rel] = hash;
+      await this.persistMeta();
+      return;
+    }
+    const texts = chunks.map((c) =>
+      c.text.length > MAX_CHUNK_CHARS ? c.text.slice(0, MAX_CHUNK_CHARS) : c.text,
+    );
+    const batchSize = 8;
+    const vectors: Float32Array[] = [];
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batch = texts.slice(i, i + batchSize);
+      const part = await embedTexts(extractor, batch, this.config.embeddingDim);
+      vectors.push(...part);
+    }
+    if (vectors.length !== chunks.length) {
+      throw new Error(`Embedding count mismatch: ${vectors.length} vs ${chunks.length}`);
+    }
+    await this.store.deleteByPath(rel);
+    const rows: ChunkRow[] = chunks.map((c, i) => ({
+      path: rel,
+      start_line: c.startLine,
+      end_line: c.endLine,
+      text: c.text,
+      vector: vectors[i]!,
+    }));
+    await this.store.addRows(rows);
+    this.meta.fileHashes[rel] = hash;
+    this.meta.lastFullScanAt = new Date().toISOString();
+    await this.persistMeta();
+  }
+
+  async removeRelativePath(relPosix: string): Promise<void> {
+    delete this.meta.fileHashes[relPosix];
+    await this.store.deleteByPath(relPosix);
+    await this.persistMeta();
+  }
+
+  scheduleIndexFile(absPath: string): void {
+    this.enqueue(() => this.indexAbsoluteFile(absPath));
+  }
+
+  scheduleRemove(absPath: string): void {
+    this.enqueue(async () => {
+      const rel = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
+      await this.removeRelativePath(rel);
+    });
+  }
+
+  async fullScan(): Promise<void> {
+    const files = await walkFiles(
+      this.config.watchRootAbs,
+      this.config.watchRootAbs,
+      this.ig,
+      this.config.forceIncludeRelPosix,
+    );
+    for (const abs of files) {
+      this.scheduleIndexFile(abs);
+    }
+    await this.chain;
+  }
+
+  getSnapshotStats(): {
+    watchRoot: string;
+    indexedFiles: number;
+    embeddingModel: string;
+    lastFullScanAt: string | null;
+  } {
+    return {
+      watchRoot: this.config.watchRootAbs,
+      indexedFiles: Object.keys(this.meta.fileHashes).length,
+      embeddingModel: this.meta.embeddingModel,
+      lastFullScanAt: this.meta.lastFullScanAt,
+    };
+  }
+
+  async reconcile(): Promise<void> {
+    const files = new Set(
+      await walkFiles(
+        this.config.watchRootAbs,
+        this.config.watchRootAbs,
+        this.ig,
+        this.config.forceIncludeRelPosix,
+      ),
+    );
+    const rels = new Set(
+      [...files].map((abs) =>
+        normalizeIgnorePath(relativePosix(this.config.watchRootAbs, abs)),
+      ),
+    );
+    const known = Object.keys(this.meta.fileHashes);
+    for (const rel of known) {
+      if (!rels.has(rel)) {
+        await this.removeRelativePath(rel);
+      }
+    }
+    await this.fullScan();
+  }
+}

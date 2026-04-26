@@ -5,15 +5,25 @@
   "type": "module",
   "main": "dist/main.js",
   "bin": {
-    "codebase-mcp": "./dist/main.js"
+    "codebase-mcp": "dist/main.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
     "prestart": "npm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck"
   },
-  "keywords": ["mcp", "vector", "embeddings", "codebase"],
+  "keywords": [
+    "mcp",
+    "vector",
+    "embeddings",
+    "codebase"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {

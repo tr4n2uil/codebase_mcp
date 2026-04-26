@@ -50,6 +50,10 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 | `CODEBASE_MCP_RECONCILE_MS` | `300000` | Periodic full reconcile (ms) |
 | `CODEBASE_MCP_USE_POLLING` | `true` | `true`/`1` uses polling (fewer file descriptors; avoids **EMFILE** on large trees). Set `false` for native `fs.watch` on small repos. |
 | `CODEBASE_MCP_POLL_MS` | `2000` | Polling interval when polling is enabled |
+| `CODEBASE_MCP_CODE_AWARE_CHUNKING` | `true` | Use symbol-aware chunk boundaries (with fallback to fixed line chunks) |
+| `CODEBASE_MCP_RERANK` | `true` | Apply lexical/path reranking to vector search candidates |
+| `CODEBASE_MCP_RERANK_CANDIDATES` | `50` | Candidate pool size fetched before reranking |
+| `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | Include `rerank_score` in `codebase_search` output for tuning/debugging |
 | `CODEBASE_MCP_FORCE_INCLUDE` | _(empty)_ | Comma- or newline-separated **repo-relative** POSIX paths (e.g. `generated/api,tmp/docs`) that are indexed **even if** matched by root `.gitignore`. Lets you avoid `!` negation rules in `.gitignore`. Does **not** override hard safety skips (`.git/`, `node_modules/`, `.env*`, key material, etc.). Also overrides watcher segment skips (`dist/`, `build/`, …) when the path is on the way to or inside a listed entry. |
 | `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** Node process (no shared daemon). |
 
@@ -59,6 +63,8 @@ Lower-CPU, less code-aware alternative (previous default):
 export CODEBASE_MCP_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2
 export CODEBASE_MCP_EMBEDDING_DIM=384
 ```
+
+When changing embedding model/dimension or code-aware chunking behavior, use a fresh `CODEBASE_MCP_INDEX_DIR` (or reindex) to avoid mixing old and new vector/chunk layouts.
 
 Large repos: native recursive watching can hit **EMFILE: too many open files**; polling is the default. You can also raise the process limit (e.g. `ulimit -n 10240`).
 

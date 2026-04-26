@@ -39,6 +39,22 @@ export interface AppConfig {
   pollingIntervalMs: number;
   /** Repo-relative POSIX paths that bypass .gitignore for indexing (safety rules still apply). */
   forceIncludeRelPosix: string[];
+  /** Enable symbol-aware chunking with line-window fallback. */
+  codeAwareChunking: boolean;
+  /** Enable lexical/path reranking over vector-search candidates. */
+  rerankEnabled: boolean;
+  /** Candidate pool size for reranking. */
+  rerankCandidates: number;
+  /** Include reranking diagnostic fields in search output. */
+  rerankDebugScores: boolean;
+}
+
+function parseBool(value: string | undefined, fallback: boolean): boolean {
+  if (!value || value.trim() === '') {
+    return fallback;
+  }
+  const v = value.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
 }
 
 function requireEnv(name: string): string {
@@ -68,6 +84,11 @@ export function loadConfig(): AppConfig {
   const pollingIntervalMs =
     Number.parseInt(process.env.CODEBASE_MCP_POLL_MS || '2000', 10) || 2000;
   const forceIncludeRelPosix = parseForceIncludeList(process.env.CODEBASE_MCP_FORCE_INCLUDE);
+  const codeAwareChunking = parseBool(process.env.CODEBASE_MCP_CODE_AWARE_CHUNKING, true);
+  const rerankEnabled = parseBool(process.env.CODEBASE_MCP_RERANK, true);
+  const rerankCandidates =
+    Number.parseInt(process.env.CODEBASE_MCP_RERANK_CANDIDATES || '50', 10) || 50;
+  const rerankDebugScores = parseBool(process.env.CODEBASE_MCP_RERANK_DEBUG_SCORES, false);
   return {
     watchRootAbs,
     indexDirAbs,
@@ -84,6 +105,10 @@ export function loadConfig(): AppConfig {
     usePolling,
     pollingIntervalMs,
     forceIncludeRelPosix,
+    codeAwareChunking,
+    rerankEnabled,
+    rerankCandidates,
+    rerankDebugScores,
   };
 }
 

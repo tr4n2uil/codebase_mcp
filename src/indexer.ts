@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Ignore } from 'ignore';
 import type { AppConfig } from './config.js';
-import { chunkByLines } from './chunker.js';
+import { chunkByLines, chunkCodeAware, type TextChunk } from './chunker.js';
 import { embedTexts, getEmbedder } from './embedder.js';
 import type { MetaFile } from './meta.js';
 import { writeMeta } from './meta.js';
@@ -22,6 +22,20 @@ const MAX_CHUNK_CHARS = 12_000;
 
 function sha256Hex(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+function embeddingTextForChunk(relPath: string, chunk: TextChunk): string {
+  const tags = [`path=${relPath}`];
+  if (chunk.language) {
+    tags.push(`lang=${chunk.language}`);
+  }
+  if (chunk.symbolName) {
+    tags.push(`symbol=${chunk.symbolName}`);
+  }
+  if (chunk.symbolKind) {
+    tags.push(`kind=${chunk.symbolKind}`);
+  }
+  return `[${tags.join('][')}]\n${chunk.text}`;
 }
 
 async function walkFiles(
@@ -115,15 +129,19 @@ export class Indexer {
       return;
     }
     const extractor = await getEmbedder(this.config);
-    const chunks = chunkByLines(content, this.config.chunkLines, this.config.chunkOverlapLines);
+    const chunks = this.config.codeAwareChunking
+      ? chunkCodeAware(content, absPath, this.config.chunkLines, this.config.chunkOverlapLines)
+      : chunkByLines(content, this.config.chunkLines, this.config.chunkOverlapLines);
     if (chunks.length === 0) {
       await this.store.deleteByPath(rel);
       this.meta.fileHashes[rel] = hash;
       await this.persistMeta();
       return;
     }
-    const texts = chunks.map((c) =>
-      c.text.length > MAX_CHUNK_CHARS ? c.text.slice(0, MAX_CHUNK_CHARS) : c.text,
+    const texts = chunks.map((c) => {
+      const embedText = embeddingTextForChunk(rel, c);
+      return embedText.length > MAX_CHUNK_CHARS ? embedText.slice(0, MAX_CHUNK_CHARS) : embedText;
+    },
     );
     const batchSize = 8;
     const vectors: Float32Array[] = [];

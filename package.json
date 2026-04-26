@@ -16,7 +16,9 @@
     "start": "node dist/main.js",
     "prestart": "npm run build",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run typecheck"
+    "prepublishOnly": "npm run build && npm run typecheck",
+    "ps": "ps auxww | grep node | grep codebase_mcp",
+    "publish": "npm run build && npm run typecheck && npm publish"
   },
   "keywords": [
     "mcp",

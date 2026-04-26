@@ -3,6 +3,7 @@ import { embedTexts, getEmbedder } from './embedder.js';
 import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
 import type { ChunkStore } from './store.js';
+import { rerankSearchHits } from './rerank.js';
 
 export type McpTextContent = { type: 'text'; text: string };
 
@@ -12,19 +13,22 @@ export async function runCodebaseSearch(
   args: { query: string; limit?: number; path_prefix?: string },
 ): Promise<{ content: McpTextContent[] }> {
   const lim = args.limit ?? 10;
+  const candidateLimit = Math.max(lim, config.rerankCandidates);
   const extractor = await getEmbedder(config);
   const [qvec] = await embedTexts(extractor, [args.query], config.embeddingDim);
   if (!qvec) {
     return { content: [{ type: 'text' as const, text: 'Failed to embed query.' }] };
   }
-  const hits = await store.search(qvec, lim, args.path_prefix);
+  const hits = await store.search(qvec, candidateLimit, args.path_prefix);
+  const ranked = config.rerankEnabled ? rerankSearchHits(args.query, hits) : hits;
   const body = JSON.stringify(
     {
-      hits: hits.map((h) => ({
+      hits: ranked.slice(0, lim).map((h) => ({
         path: h.path,
         start_line: h.start_line,
         end_line: h.end_line,
         score: h.score,
+        ...(config.rerankDebugScores && 'rerank_score' in h ? { rerank_score: h.rerank_score } : {}),
         snippet: h.text.length > 4000 ? `${h.text.slice(0, 4000)}…` : h.text,
       })),
     },

@@ -1,6 +1,6 @@
 {
   "name": "codebase-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local vector index + MCP server for codebase semantic search (TypeScript, Xenova transformers, LanceDB)",
   "type": "module",
   "main": "dist/main.js",

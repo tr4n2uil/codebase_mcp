@@ -1,6 +1,6 @@
 {
   "name": "@tr4n2uil/codebase-mcp",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "Local vector index + MCP server for codebase semantic search (TypeScript, Xenova transformers, LanceDB)",
   "type": "module",
   "main": "dist/main.js",

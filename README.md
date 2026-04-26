@@ -41,8 +41,8 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 |----------|---------|---------|
 | `CODEBASE_MCP_ROOT` | _(required)_ | Repo root to watch and index |
 | `CODEBASE_MCP_INDEX_DIR` | `tools/codebase-mcp/db/<basename(root)>/` | Where LanceDB + `meta.json` live (under this package). Override for custom location or to avoid basename collisions. |
-| `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/all-MiniLM-L6-v2` | Transformers.js model id |
-| `CODEBASE_MCP_EMBEDDING_DIM` | `384` | Must match the model output size |
+| `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-code` | Transformers.js model id |
+| `CODEBASE_MCP_EMBEDDING_DIM` | `768` | Must match the model output size |
 | `CODEBASE_MCP_CHUNK_LINES` | `60` | Lines per chunk |
 | `CODEBASE_MCP_CHUNK_OVERLAP` | `12` | Overlap between chunks |
 | `CODEBASE_MCP_MAX_FILE_BYTES` | `5242880` | Skip larger files |
@@ -52,6 +52,13 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 | `CODEBASE_MCP_POLL_MS` | `2000` | Polling interval when polling is enabled |
 | `CODEBASE_MCP_FORCE_INCLUDE` | _(empty)_ | Comma- or newline-separated **repo-relative** POSIX paths (e.g. `generated/api,tmp/docs`) that are indexed **even if** matched by root `.gitignore`. Lets you avoid `!` negation rules in `.gitignore`. Does **not** override hard safety skips (`.git/`, `node_modules/`, `.env*`, key material, etc.). Also overrides watcher segment skips (`dist/`, `build/`, …) when the path is on the way to or inside a listed entry. |
 | `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** Node process (no shared daemon). |
+
+Lower-CPU, less code-aware alternative (previous default):
+
+```bash
+export CODEBASE_MCP_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2
+export CODEBASE_MCP_EMBEDDING_DIM=384
+```
 
 Large repos: native recursive watching can hit **EMFILE: too many open files**; polling is the default. You can also raise the process limit (e.g. `ulimit -n 10240`).
 

@@ -2,8 +2,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseForceIncludeList } from './force-include.js';
 
-const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
-const DEFAULT_EMBEDDING_DIM = 384;
+const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-code';
+const DEFAULT_EMBEDDING_DIM = 768;
 
 /** Directory containing this module (`dist/` when compiled). */
 function packageRootDir(): string {

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseForceIncludeList } from './force-include.js';
 
-const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-code';
+const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-en';
 const DEFAULT_EMBEDDING_DIM = 768;
 
 /** Directory containing this module (`dist/` when compiled). */

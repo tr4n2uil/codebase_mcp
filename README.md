@@ -41,7 +41,7 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 |----------|---------|---------|
 | `CODEBASE_MCP_ROOT` | _(required)_ | Repo root to watch and index |
 | `CODEBASE_MCP_INDEX_DIR` | `tools/codebase-mcp/db/<basename(root)>/` | Where LanceDB + `meta.json` live (under this package). Override for custom location or to avoid basename collisions. |
-| `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-code` | Transformers.js model id |
+| `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | Transformers.js model id |
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | Must match the model output size |
 | `CODEBASE_MCP_CHUNK_LINES` | `60` | Lines per chunk |
 | `CODEBASE_MCP_CHUNK_OVERLAP` | `12` | Overlap between chunks |

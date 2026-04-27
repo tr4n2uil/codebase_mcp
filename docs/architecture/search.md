@@ -15,17 +15,20 @@ flowchart TD
     F[RRFReranker: RRF fusion]
   end
   R[rerankSearchHits heuristics]
-  O[JSON: path, lines, score, snippet]
+  M[assessSearchMatchQuality]
+  O[JSON: path, lines, score, snippet + optional match_confidence*]
   Q --> E
   E --> S
   S --> s1
   s1 --> R
-  R --> O
+  R --> M
+  M --> O
 ```
 
+- **Match confidence (optional)** — `search-confidence.ts` scores the **same** top-`limit` list returned to the client: `match_confidence`, reasons, a short `match_confidence_hint`, `top_primary_score` (uses `rerank_score` when rerank is on), and `top_relative_separation`. Tunable with `CODEBASE_MCP_MATCH_CONFIDENCE` / `CODEBASE_MCP_MATCH_CONF_*` (see README). This is a **heuristic**; scores are not globally calibrated.
 - **Candidate pool size** — `mcp-tools.ts` fetches at least `max(limit, CODEBASE_MCP_RERANK_CANDIDATES)` before rerank (see README defaults).
 - **Hybrid (default on)** — When `CODEBASE_MCP_HYBRID` is true, an FTS index exists on `text`, and the query string is non-empty, `ChunkStore` runs **vector + full-text** search with **Lance’s `RRFReranker`** (RRF). If hybrid fails or the FTS index is missing (e.g. pure read-only MCP never ran a writer), the store **falls back to vector-only** (no user-visible error).
-- **Rerank** — `rerank.ts` reorders hits using a weighted blend of vector/hybrid `score` plus **lexical** match, path hints, and simple **file-path priors** (e.g. prefer `src/`, de-prioritize tests/fixtures for symbol-like queries). Toggle with `CODEBASE_MCP_RERANK`.
+- **Rerank** — `rerank.ts` reorders hits using a weighted blend of vector/hybrid `score` plus **lexical** match, path hints, **built-in path priors** (e.g. prefer `src/`, de-prioritize tests/fixtures for symbol-like queries), and optional **`CODEBASE_MCP_RERANK_DEMOTE_PATHS`** (substring demotion for e.g. VCR, snapshots). Toggle with `CODEBASE_MCP_RERANK`.
 
 ## Tool surface
 
@@ -46,4 +49,5 @@ flowchart TD
 - `mcp.ts` — Tool registration, Zod input schemas, backend wiring
 - `store.ts` — `search({ queryVector, queryText, limit, pathPrefix })`
 - `rerank.ts` — `rerankSearchHits`
+- `search-confidence.ts` — `assessSearchMatchQuality` (MCP output fields)
 - `embedder.ts` — `getEmbedder`, `embedTexts`

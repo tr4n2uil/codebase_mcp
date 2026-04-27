@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { parseForceIncludeList, parseIndexExcludeList } from './force-include.js';
+import { defaultMatchConfRerank, defaultMatchConfVector } from './search-confidence.js';
 
 const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-en';
 const DEFAULT_EMBEDDING_DIM = 768;
@@ -54,8 +55,26 @@ export interface AppConfig {
   rrfK: number;
   /** Max results requested per channel before RRF; should be ≥ rerankCandidates for best results. */
   hybridDepth: number;
+  /** Substrings in repo-relative path (case-insensitive) that lower search rank. From `CODEBASE_MCP_RERANK_DEMOTE_PATHS`. */
+  rerankDemotePathSubstrings: string[];
+  /**
+   * For each path substring that matches, subtract this from the rerank path prior (capped in reranker).
+   * From `CODEBASE_MCP_RERANK_DEMOTE_STRENGTH` (default 0.1).
+   */
+  rerankDemotePerMatch: number;
   /** Include reranking diagnostic fields in search output. */
   rerankDebugScores: boolean;
+  /**
+   * When true, `codebase_search` JSON includes `match_confidence` and related fields
+   * (heuristic, tunable with `CODEBASE_MCP_MATCH_CONF_*`).
+   */
+  searchMatchConfidence: boolean;
+  /** Below = `match_confidence: low` on the primary (rerank or vector) scale. */
+  searchMatchWeakBelow: number;
+  /** At or above with clear separation = `high` (heuristic). */
+  searchMatchStrongAbove: number;
+  /** Min relative (top−2nd)/|top| to treat top as clearly separated. */
+  searchMatchMinGap: number;
   /** Log every indexed file path (can be noisy on large repos). */
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
@@ -147,7 +166,40 @@ export function loadConfig(): AppConfig {
     rawHybridDepth === ''
       ? Math.max(100, rerankCandidates)
       : Math.max(1, Number.parseInt(rawHybridDepth, 10) || Math.max(100, rerankCandidates));
+  const rerankDemotePathSubstrings = parseForceIncludeList(process.env.CODEBASE_MCP_RERANK_DEMOTE_PATHS);
+  const rawDemoteStr = process.env.CODEBASE_MCP_RERANK_DEMOTE_STRENGTH?.trim() ?? '';
+  const rerankDemotePerMatch = (() => {
+    if (rawDemoteStr === '') {
+      return 0.1;
+    }
+    const n = Number.parseFloat(rawDemoteStr);
+    if (!Number.isFinite(n) || n < 0) {
+      return 0;
+    }
+    return Math.min(0.5, n);
+  })();
   const rerankDebugScores = parseBool(process.env.CODEBASE_MCP_RERANK_DEBUG_SCORES, false);
+  const searchMatchConfidence = parseBool(process.env.CODEBASE_MCP_MATCH_CONFIDENCE, true);
+  const matchConfBase = rerankEnabled ? defaultMatchConfRerank : defaultMatchConfVector;
+  const parseMatchFloat = (raw: string | undefined, def: number): number => {
+    if (raw === undefined || raw.trim() === '') {
+      return def;
+    }
+    const n = Number.parseFloat(raw.trim());
+    return Number.isFinite(n) && n >= 0 ? n : def;
+  };
+  let searchMatchWeakBelow = parseMatchFloat(process.env.CODEBASE_MCP_MATCH_CONF_WEAK, matchConfBase.weakBelow);
+  let searchMatchStrongAbove = parseMatchFloat(
+    process.env.CODEBASE_MCP_MATCH_CONF_STRONG,
+    matchConfBase.strongAbove,
+  );
+  let searchMatchMinGap = parseMatchFloat(
+    process.env.CODEBASE_MCP_MATCH_CONF_GAP,
+    matchConfBase.minRelativeGap,
+  );
+  if (searchMatchStrongAbove <= searchMatchWeakBelow) {
+    searchMatchStrongAbove = searchMatchWeakBelow + 0.01;
+  }
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
@@ -183,7 +235,13 @@ export function loadConfig(): AppConfig {
     hybridSearch,
     rrfK,
     hybridDepth,
+    rerankDemotePathSubstrings,
+    rerankDemotePerMatch,
     rerankDebugScores,
+    searchMatchConfidence,
+    searchMatchWeakBelow,
+    searchMatchStrongAbove,
+    searchMatchMinGap,
     logIndexEachFile,
     logMcpTools,
     ortUnlimited,

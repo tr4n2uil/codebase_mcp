@@ -1,3 +1,4 @@
+import type { AppConfig } from './config.js';
 import type { SearchHit } from './store.js';
 
 export interface RerankedHit extends SearchHit {
@@ -109,7 +110,37 @@ function codePathPrior(path: string, symbolIntent: boolean): number {
   return prior;
 }
 
-export function rerankSearchHits(query: string, hits: SearchHit[]): RerankedHit[] {
+/**
+ * User-configured demotion: each matching substring in the path (case-insensitive) adds a negative
+ * bump, capped so search still returns relevant hits in those trees when they are the only match.
+ */
+function userPathDemote(
+  path: string,
+  substrings: string[],
+  perMatch: number,
+): number {
+  if (substrings.length === 0 || perMatch <= 0) {
+    return 0;
+  }
+  const p = path.toLowerCase();
+  let matches = 0;
+  for (const raw of substrings) {
+    const s = raw.replace(/\\/g, '/').trim().toLowerCase();
+    if (s && p.includes(s)) {
+      matches += 1;
+    }
+  }
+  if (matches === 0) {
+    return 0;
+  }
+  return -Math.min(0.4, matches * perMatch);
+}
+
+export function rerankSearchHits(
+  query: string,
+  hits: SearchHit[],
+  pathDemote: Pick<AppConfig, 'rerankDemotePathSubstrings' | 'rerankDemotePerMatch'>,
+): RerankedHit[] {
   const queryTokens = tokenize(query);
   const symbolTokens = symbolLikeTokens(query, queryTokens);
   const symbolIntent = isSymbolIntentQuery(query, queryTokens);
@@ -120,7 +151,9 @@ export function rerankSearchHits(query: string, hits: SearchHit[]): RerankedHit[
       const exactPath = scoreExactWordMatch(queryTokens, hit.path);
       const pathHint = scorePathHint(queryTokens, hit.path);
       const symbolBonus = scoreSymbolBonus(symbolTokens, hit);
-      const pathPrior = codePathPrior(hit.path, symbolIntent);
+      const pathPrior =
+        codePathPrior(hit.path, symbolIntent) +
+        userPathDemote(hit.path, pathDemote.rerankDemotePathSubstrings, pathDemote.rerankDemotePerMatch);
       const rerankScore = symbolIntent
         ? hit.score * 0.35 + lexical * 0.2 + exact * 0.2 + exactPath * 0.15 + symbolBonus * 0.15 + pathPrior
         : hit.score * 0.5 + lexical * 0.2 + exact * 0.1 + pathHint * 0.1 + symbolBonus * 0.05 + pathPrior;

@@ -9,6 +9,8 @@ High-ROI improvements for **semantic search over code** (same embedding model ca
 | **Hybrid retrieval** — BM25 + vectors + RRF | Big | **Done (LanceDB)** | **`src/store.ts`**: LanceDB **FTS on `text`** (BM25-ordered) + **`vectorSearch`** + native **`RRFReranker`** (RRF). FTS index is created in the **writer** (`ensureFtsIndex` after `init` and after `addRows` when new data exists). **MCP read-only** uses hybrid only if the index already exists (start the **daemon** / indexer once to build it). Toggles: `CODEBASE_MCP_HYBRID`, `CODEBASE_MCP_RRF_K`, `CODEBASE_MCP_HYBRID_DEPTH`. On failure, search falls back to **vector-only**. |
 | **Query expansion** — NL → code aliases / symbol forms | Medium | **Not started** | Queries are embedded **as-is** in **`src/mcp-tools.ts`** / **`embedder.ts`**. No alias tables or expansion step. |
 | **Path / language filtering** | Medium | **Partial** | **`codebase_search`** supports **`path_prefix`** (POSIX path under repo root) — see **`src/mcp.ts`**, applied in **`src/store.search()`** / **`mcp-tools.ts`**. Chunks store **`path`**; embedding tags include inferred **`lang`** from extension — **no** `language` or glob filter on the search tool (e.g. `*.ts` must be approximated via prefix or future work). **Related:** `CODEBASE_MCP_INDEX_EXCLUDE` (daemon) skips paths from the index, not a query-time filter. |
+| **Result confidence / weak match signal** | Medium | **Done (heuristic)** | **`src/search-confidence.ts`**: `assessSearchMatchQuality` on the final top-`limit` list; MCP JSON includes `match_confidence`, `match_confidence_reasons`, `match_confidence_hint`, `top_primary_score`, `top_relative_separation`. Toggle: `CODEBASE_MCP_MATCH_CONFIDENCE`; thresholds: `CODEBASE_MCP_MATCH_CONF_WEAK` / `STRONG` / `GAP` (defaults differ when `CODEBASE_MCP_RERANK` is on). **Not a guarantee** of correctness — informs agents when the top score is weak or top results are close. |
+| **Cross-domain / literal disambiguation** (same token in many contexts) | Medium | **Not started** | Current reranker is fusion + heuristics; ambiguous literals still cluster by embedding similarity. Likely needs **stronger reranking** (e.g. small cross-encoder on top-K) and/or **query refinement** (expansion, entity/code-path hints) — see *Suggested next steps*. |
 
 ## Quick file map
 
@@ -16,16 +18,17 @@ High-ROI improvements for **semantic search over code** (same embedding model ca
 - Vector retrieval: `src/store.ts`
 - Search pipeline: `src/mcp-tools.ts` (`runCodebaseSearch`)
 - Rerank: `src/rerank.ts`
+- Match quality: `src/search-confidence.ts`
 - Tool API: `src/mcp.ts` (`path_prefix`, `limit`)
-- Config: `src/config.ts` (e.g. `rerankCandidates`, `rerankEnabled`, `codeAwareChunking`, `indexExcludeRelPosix`)
+- Config: `src/config.ts` (e.g. `rerankCandidates`, `rerankEnabled`, `searchMatch*`, `codeAwareChunking`, `indexExcludeRelPosix`)
 
 For end-to-end architecture (processes, diagrams, hybrid search flow), see **[`docs/architecture/README.md`](../architecture/README.md)**.
 
 ## Suggested next steps (not committed)
 
 1. **Chunking** — Optional **tree-sitter** (or similar) for top languages; keep line fallback for the long tail.
-2. **Rerank** — Tighter **symbol/path** features or a **small cross-encoder** on the top K after fusion.
-3. **Query** — Light expansion (synonyms, camelCase / snake_case flip) or a fixed **code** synonym list behind a flag.
+2. **Rerank** — Tighter **symbol/path** features or a **small cross-encoder** on the top K after fusion (especially for **cross-domain literal** queries where the current heuristic reranker cannot separate domains).
+3. **Query** — Light expansion (synonyms, camelCase / snake_case flip) or a fixed **code** synonym list behind a flag; optional **one-shot query refinement** when `match_confidence` is low or top scores are tight.
 4. **API** — Optional **`lang` / `ext`** or **glob** filter on `codebase_search` for monorepos (complements `path_prefix`).
 
 ---

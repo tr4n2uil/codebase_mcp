@@ -5,6 +5,7 @@ import type { Indexer } from './indexer.js';
 import { readMeta } from './meta.js';
 import type { ChunkStore } from './store.js';
 import { rerankSearchHits } from './rerank.js';
+import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
 
 export type McpTextContent = { type: 'text'; text: string };
 
@@ -26,10 +27,24 @@ export async function runCodebaseSearch(
     limit: candidateLimit,
     pathPrefix: args.path_prefix,
   });
-  const ranked = config.rerankEnabled ? rerankSearchHits(args.query, hits) : hits;
+  const ranked = config.rerankEnabled
+    ? rerankSearchHits(args.query, hits, {
+        rerankDemotePathSubstrings: config.rerankDemotePathSubstrings,
+        rerankDemotePerMatch: config.rerankDemotePerMatch,
+      })
+    : hits;
+  const topHits = ranked.slice(0, lim);
+  const assessment = config.searchMatchConfidence
+    ? assessSearchMatchQuality(topHits, {
+        rerankEnabled: config.rerankEnabled,
+        weakBelow: config.searchMatchWeakBelow,
+        strongAbove: config.searchMatchStrongAbove,
+        minRelativeGap: config.searchMatchMinGap,
+      })
+    : null;
   const body = JSON.stringify(
     {
-      hits: ranked.slice(0, lim).map((h) => ({
+      hits: topHits.map((h) => ({
         path: h.path,
         start_line: h.start_line,
         end_line: h.end_line,
@@ -37,6 +52,15 @@ export async function runCodebaseSearch(
         ...(config.rerankDebugScores && 'rerank_score' in h ? { rerank_score: h.rerank_score } : {}),
         snippet: h.text.length > 4000 ? `${h.text.slice(0, 4000)}…` : h.text,
       })),
+      ...(assessment
+        ? {
+            match_confidence: assessment.match_confidence,
+            match_confidence_reasons: assessment.match_confidence_reasons,
+            match_confidence_hint: matchConfidenceHint(assessment),
+            top_primary_score: assessment.top_primary_score,
+            top_relative_separation: assessment.top_relative_separation,
+          }
+        : {}),
     },
     null,
     2,

@@ -80,7 +80,13 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_HYBRID` | `true` | **MCP** | **Hybrid search**: combine LanceDB **BM25** (FTS on chunk `text`) and **vector** kNN with **RRF** (Lance’s `RRFReranker`). The FTS index is built by the **indexing daemon** (or `NO_DAEMON`); pure MCP with an old DB and no index falls back to vector-only automatically. Set `0` to disable. |
 | `CODEBASE_MCP_RRF_K` | `60` | **MCP** | RRF `k` parameter (Lance `RRFReranker.create(k)`). |
 | `CODEBASE_MCP_HYBRID_DEPTH` | `max(100, RERANK_CANDIDATES)` | **MCP** | How many results to request per leg before RRF. Override for large candidate pools. |
+| `CODEBASE_MCP_RERANK_DEMOTE_PATHS` | _(empty)_ | **MCP** | Comma- or newline-separated **substrings** of repo-relative paths (case-insensitive) that **lower rank** in the reranker (e.g. cassettes/specs) without removing them from the index. Example: `vcr_cassettes,spec/cassettes,__snapshots__`. |
+| `CODEBASE_MCP_RERANK_DEMOTE_STRENGTH` | `0.1` | **MCP** | Per matching substring, subtracts from the path component of the rerank score (capped there). `0` disables the extra penalty (built-in heuristics like `codePathPrior` still apply). |
 | `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | **MCP** | Expose `rerank_score` in search output. |
+| `CODEBASE_MCP_MATCH_CONFIDENCE` | `true` | **MCP** | When true, `codebase_search` JSON adds `match_confidence` (heuristic high / medium / low), `match_confidence_reasons`, `match_confidence_hint`, `top_primary_score`, and `top_relative_separation` so callers can tell weak or ambiguous top hits from a stronger single winner. Set `0` to omit. |
+| `CODEBASE_MCP_MATCH_CONF_WEAK` | `0.35` if `CODEBASE_MCP_RERANK` is on, else `0.18` | **MCP** | Primary score (rerank or retriever) below this → `low` confidence. |
+| `CODEBASE_MCP_MATCH_CONF_STRONG` | `0.55` (rerank on) or `0.4` (off) | **MCP** | Primary score at/above this can contribute to `high` (with enough top-1 vs top-2 gap). If ≤ weak, strong is raised to weak + 0.01. |
+| `CODEBASE_MCP_MATCH_CONF_GAP` | `0.05` (rerank on) or `0.06` (off) | **MCP** | Minimum relative (top1−top2)/|top1| to treat the leader as “clear” for `high`. |
 | `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
 | `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
 | `CODEBASE_MCP_FORCE_INCLUDE` | `.claude/docs` | **Daemon** | Comma- or newline-separated **repo-relative** paths indexed even if `.gitignore` would skip them. Default alone includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra includes). **Not used for search**; set on the **daemon** env (or the single process when `CODEBASE_MCP_NO_DAEMON=1`). |
@@ -148,7 +154,7 @@ Same as Cursor: MCP `env` is for the stdio server; put **`CODEBASE_MCP_FORCE_INC
 
 | Tool | Description |
 |------|-------------|
-| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`) |
+| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`); response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
 | `codebase_stats` | Chunk count, indexed file count, model, last scan time |
 | `codebase_reindex` | Optional `path` to reindex one file; omit for full **reconcile** |
 

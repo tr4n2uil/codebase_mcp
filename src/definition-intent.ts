@@ -10,6 +10,9 @@ export function parseDefinitionIntentQuery(query: string): string | undefined {
     return undefined;
   }
   const patterns: RegExp[] = [
+    // "where is the User class defined?" — also method/module for Ruby, etc.
+    /where\s+(?:is|are)\s+(?:the\s+)?`?([A-Za-z_][\w$]*)`?\s+(?:class|interface|type|enum|struct|trait|record|method|module)\s+defined\b/i,
+    /\bdefinition(?:s)?\s+of\s+(?:the\s+)?`?([A-Za-z_][\w$]*)`?\s+(?:class|interface|type|enum|method|module)\b/i,
     /where\s+(?:is|are)\s+(?:the\s+)?`?([A-Za-z_][\w$]*)`?\s+defined\b/i,
     /\bdefinition(?:s)?\s+of\s+(?:the\s+)?`?([A-Za-z_][\w$]*)`?\b/i,
     /\bfind\s+(?:the\s+)?`?([A-Za-z_][\w$]*)`?\s+definition\b/i,

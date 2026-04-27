@@ -154,6 +154,9 @@ function detectLanguage(filePath: string): string {
   if (ext === 'rs') {
     return 'rust';
   }
+  if (ext === 'rb' || ext === 'rake' || ext === 'rbi') {
+    return 'ruby';
+  }
   return ext;
 }
 
@@ -181,6 +184,23 @@ async function extractSymbols(lines: string[], language: string): Promise<Symbol
         symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
         continue;
       }
+      m = trimmed.match(/^(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)\b/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'interface', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(
+        /^(?:export\s+)?type\s+([A-Za-z_$][\w$]*)(?:<[^>]+>)?(?:\s*=\s*|\s+extends\b)/,
+      );
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'type', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(/^(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\b/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'type', startLine: lineNum });
+        continue;
+      }
       m = trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/);
       if (m) {
         symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
@@ -203,6 +223,30 @@ async function extractSymbols(lines: string[], language: string): Promise<Symbol
         symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
       }
       continue;
+    }
+    if (language === 'ruby') {
+      m = trimmed.match(/^\s*def\s+self\.([A-Za-z_][\w]*)/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(
+        /^\s*def\s+([A-Za-z_](?:\w|_)*[!?]?(?:=(?=\s*\())?)(?=[\s\(\n#&;!]|$)/,
+      );
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(/^\s*class\s+([A-Z][A-Za-z0-9_:]*)\b/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(/^\s*module\s+([A-Z][A-Za-z0-9_:]*)\b/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
+        continue;
+      }
     }
     m = trimmed.match(/^(?:export\s+)?(?:func|fn)\s+([A-Za-z_]\w*)\s*\(/);
     if (m) {

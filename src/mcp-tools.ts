@@ -7,22 +7,53 @@ import type { ChunkStore } from './store.js';
 import { orderHitsByDefinitionBoost, parseDefinitionIntentQuery } from './definition-intent.js';
 import { rerankSearchHits } from './rerank.js';
 import type { RerankedHit } from './rerank.js';
+
+function rerankScoreForPayload(h: SearchHit | RerankedHit): number | undefined {
+  if (!('rerank_score' in h)) {
+    return undefined;
+  }
+  const v = (h as RerankedHit).rerank_score;
+  return typeof v === 'number' ? v : undefined;
+}
 import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
 import type { SearchHit } from './store.js';
 
 export type McpTextContent = { type: 'text'; text: string };
 
-export async function runCodebaseSearch(
+export interface CodebaseSearchHitPayload {
+  path: string;
+  start_line: number;
+  end_line: number;
+  score: number;
+  definition_of?: string;
+  rerank_score?: number;
+  snippet: string;
+}
+
+export type CodebaseSearchPayload =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      hits: CodebaseSearchHitPayload[];
+      match_confidence?: string;
+      match_confidence_reasons?: string[];
+      match_confidence_hint?: string;
+      top_primary_score?: number;
+      top_relative_separation?: number;
+    };
+
+/** Same pipeline as MCP `codebase_search`; use for CLIs and tests (structured JSON, no MCP wrapper). */
+export async function codebaseSearchPayload(
   config: AppConfig,
   store: ChunkStore,
   args: { query: string; limit?: number; path_prefix?: string },
-): Promise<{ content: McpTextContent[] }> {
+): Promise<CodebaseSearchPayload> {
   const lim = args.limit ?? 10;
   const candidateLimit = Math.max(lim, config.rerankCandidates);
   const extractor = await getEmbedder(config);
   const [qvec] = await embedTexts(extractor, [args.query], config.embeddingDim, config.embedInferenceLogMs);
   if (!qvec) {
-    return { content: [{ type: 'text' as const, text: 'Failed to embed query.' }] };
+    return { ok: false, error: 'Failed to embed query.' };
   }
   const hits = await store.search({
     queryVector: qvec,
@@ -63,30 +94,44 @@ export async function runCodebaseSearch(
         matchConfTopPathFamilyDivergence: config.matchConfTopPathFamilyDivergence,
       })
     : null;
-  const body = JSON.stringify(
-    {
-      hits: topHits.map((h) => ({
-        path: h.path,
-        start_line: h.start_line,
-        end_line: h.end_line,
-        score: h.score,
-        ...(h.definition_of ? { definition_of: h.definition_of } : {}),
-        ...(config.rerankDebugScores && 'rerank_score' in h ? { rerank_score: h.rerank_score } : {}),
-        snippet: h.text.length > 4000 ? `${h.text.slice(0, 4000)}…` : h.text,
-      })),
-      ...(assessment
-        ? {
-            match_confidence: assessment.match_confidence,
-            match_confidence_reasons: assessment.match_confidence_reasons,
-            match_confidence_hint: matchConfidenceHint(assessment),
-            top_primary_score: assessment.top_primary_score,
-            top_relative_separation: assessment.top_relative_separation,
-          }
-        : {}),
-    },
-    null,
-    2,
-  );
+  const hitPayloads: CodebaseSearchHitPayload[] = topHits.map((h) => {
+    const rs = config.rerankDebugScores ? rerankScoreForPayload(h) : undefined;
+    return {
+      path: h.path,
+      start_line: h.start_line,
+      end_line: h.end_line,
+      score: h.score,
+      ...(h.definition_of ? { definition_of: h.definition_of } : {}),
+      ...(rs !== undefined ? { rerank_score: rs } : {}),
+      snippet: h.text.length > 4000 ? `${h.text.slice(0, 4000)}…` : h.text,
+    };
+  });
+  if (!assessment) {
+    return { ok: true, hits: hitPayloads };
+  }
+  return {
+    ok: true,
+    hits: hitPayloads,
+    match_confidence: assessment.match_confidence,
+    match_confidence_reasons: assessment.match_confidence_reasons,
+    match_confidence_hint: matchConfidenceHint(assessment),
+    top_primary_score: assessment.top_primary_score ?? undefined,
+    top_relative_separation: assessment.top_relative_separation ?? undefined,
+  };
+}
+
+export async function runCodebaseSearch(
+  config: AppConfig,
+  store: ChunkStore,
+  args: { query: string; limit?: number; path_prefix?: string },
+): Promise<{ content: McpTextContent[] }> {
+  const payload = await codebaseSearchPayload(config, store, args);
+  if (!payload.ok) {
+    return { content: [{ type: 'text' as const, text: payload.error }] };
+  }
+  const { ok, ...bodyObj } = payload;
+  void ok;
+  const body = JSON.stringify(bodyObj, null, 2);
   return { content: [{ type: 'text' as const, text: body }] };
 }
 

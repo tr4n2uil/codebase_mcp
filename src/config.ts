@@ -106,8 +106,8 @@ export interface AppConfig {
   frontendPathQueryBoost: boolean;
   /**
    * When true, the indexer includes `def=…` in the **embedding** prefix (alongside `path=`, `symbol=`, etc.).
-   * Default **false** (V1): `definition_of` is stored in Lance and used for definition-intent **rerank** only,
-   * so vectors are not steered by definition labels. Set `CODEBASE_MCP_EMBED_DEF_TAG=1` for V2 (re-embed to apply).
+   * Default **true**: definition labels steer retrieval as well as `definition_of`-based rerank. Set
+   * `CODEBASE_MCP_EMBED_DEF_TAG=0` for rerank-only (re-embed after changing).
    */
   embedDefTagInChunk: boolean;
   /**
@@ -264,7 +264,7 @@ export function loadConfig(): AppConfig {
   })();
   const testPathQueryBoost = parseBool(process.env.CODEBASE_MCP_TEST_PATH_QUERY_BOOST, true);
   const frontendPathQueryBoost = parseBool(process.env.CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST, true);
-  const embedDefTagInChunk = parseBool(process.env.CODEBASE_MCP_EMBED_DEF_TAG, false);
+  const embedDefTagInChunk = parseBool(process.env.CODEBASE_MCP_EMBED_DEF_TAG, true);
   const rawDefEngine = process.env.CODEBASE_MCP_DEF_ENGINE?.trim().toLowerCase() ?? '';
   const legacyRuby = process.env.CODEBASE_MCP_RUBY_DEF_ENGINE?.trim().toLowerCase() ?? '';
   const defEngine: 'auto' | 'tree_sitter' | 'regex' = (() => {

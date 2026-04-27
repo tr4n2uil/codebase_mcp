@@ -46,9 +46,9 @@ async function sha256HexWithYields(content: string): Promise<string> {
 }
 
 /**
- * Build the string passed to the embedder. When `includeDefTag` is false (default), `definition_of` is
- * omitted from the prefix so vectors stay driven by code + path/symbol; Lance still stores `definition_of`
- * for definition-intent rerank (`CODEBASE_MCP_EMBED_DEF_TAG=1` enables the `def=` tag — re-embed to apply).
+ * Build the string passed to the embedder. When `includeDefTag` is false, `definition_of` is omitted from
+ * the prefix (vectors: code + path/symbol only); Lance still stores `definition_of` for definition-intent
+ * rerank. Default config includes `def=` (`CODEBASE_MCP_EMBED_DEF_TAG`); set `0` to disable — re-embed to apply.
  */
 function embeddingTextForChunk(relPath: string, chunk: TextChunk, includeDefTag: boolean): string {
   const tags = [`path=${relPath}`];

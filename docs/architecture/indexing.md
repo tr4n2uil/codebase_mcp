@@ -36,7 +36,7 @@ flowchart LR
 - **Line mode** — `chunkByLines*`: fixed window of `CODEBASE_MCP_CHUNK_LINES` with `CODEBASE_MCP_CHUNK_OVERLAP` (see `config.ts` defaults in README).
 - **Code-aware mode** (default) — `chunkCodeAware`: **tree-sitter** (when the native `tree-sitter` module loads) finds declarations for supported languages; results are **merged** with line-regex (AST wins per line, then at most one symbol per line). Unmatched extensions or failed native loads use **regex only**. Large files use **incremental** line array building and **yields to the event loop** to keep the daemon responsive (`event-loop-yield.ts`, `tree-sitter-definitions.ts`, `chunker.ts`). Very large single files can skip the parser (`CODEBASE_MCP_TREE_SITTER_MAX_BYTES`).
 
-**Embedding string** (what gets embedded) is not raw text alone: the indexer prepends `path=`, and optional `lang=`, `symbol=`, `kind=` tags for context (`indexer.ts` / `embeddingTextForChunk`). The optional `def=…` tag is **off by default** (`CODEBASE_MCP_EMBED_DEF_TAG`); `definition_of` is still written to Lance for definition-intent rerank.
+**Embedding string** (what gets embedded) is not raw text alone: the indexer prepends `path=`, and optional `lang=`, `symbol=`, `kind=` tags for context (`indexer.ts` / `embeddingTextForChunk`). The `def=…` tag is **on by default** (`CODEBASE_MCP_EMBED_DEF_TAG`); set `0` to omit it from embed text. `definition_of` is always written to Lance for definition-intent rerank.
 
 ## Embedding
 

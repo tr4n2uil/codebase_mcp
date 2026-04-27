@@ -1,14 +1,9 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-function packageRootDir(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-}
-
-/** Directory under the index root used for socket, spawn lock, etc. */
+/** Directory under the index root used for socket, spawn lock, etc. (one daemon per index). */
 export function daemonStateDir(indexDirAbs: string): string {
-  return path.join(packageRootDir(), '.codebase-mcp-daemon');
+  return path.join(indexDirAbs, '.codebase-mcp-daemon');
 }
 
 /**

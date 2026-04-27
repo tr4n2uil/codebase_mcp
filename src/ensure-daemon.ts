@@ -38,6 +38,33 @@ async function unlinkIfExists(p: string): Promise<void> {
   }
 }
 
+async function readSpawnLockPid(lockPath: string): Promise<number | null> {
+  try {
+    const raw = (await fs.readFile(lockPath, 'utf8')).trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPidRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** If spawn.lock exists but the PID is not running, another process may have crashed; remove the stale lock. */
+async function tryRemoveStaleSpawnLock(lockPath: string): Promise<void> {
+  const pid = await readSpawnLockPid(lockPath);
+  if (pid !== null && !isPidRunning(pid)) {
+    await unlinkIfExists(lockPath);
+  }
+}
+
 /**
  * Connects to an existing daemon or acquires a spawn lock, starts `main.js --daemon`, and waits until ping succeeds.
  */
@@ -62,6 +89,7 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
         throw e;
       }
+      await tryRemoveStaleSpawnLock(lockPath);
       await sleep(50);
       continue;
     }

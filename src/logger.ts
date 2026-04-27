@@ -95,3 +95,44 @@ export function initFileLogging(indexDirAbs: string, kind: FileLogKind): string 
 export function getLogFilePath(): string {
   return logFilePath;
 }
+
+let fatalLoggingRegistered = false;
+
+/**
+ * Log `unhandledRejection` and `uncaughtException` to stderr and append to the same
+ * `daemon.log` / `mcp.log` file (sync) so a crash is visible even if buffers did not flush.
+ * Call after `initFileLogging()`.
+ */
+export function registerFatalProcessLogging(): void {
+  if (fatalLoggingRegistered) {
+    return;
+  }
+  fatalLoggingRegistered = true;
+
+  const appendSyncLine = (line: string): void => {
+    const p = getLogFilePath();
+    if (!p) {
+      return;
+    }
+    try {
+      fs.appendFileSync(p, `[pid=${process.pid}] ${line}\n`, 'utf8');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    const detail = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+    const msg = `[codebase-mcp] [fatal] unhandledRejection: ${detail}`;
+    console.error(msg);
+    appendSyncLine(msg);
+  });
+
+  process.on('uncaughtException', (err: Error) => {
+    const detail = err.stack ?? err.message;
+    const msg = `[codebase-mcp] [fatal] uncaughtException: ${detail}`;
+    console.error(msg);
+    appendSyncLine(msg);
+    process.exit(1);
+  });
+}

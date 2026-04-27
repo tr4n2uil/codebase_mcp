@@ -120,11 +120,13 @@ export class Indexer {
   }
 
   private enqueue(fn: () => Promise<void>): void {
-    this.chain = this.chain
-      .then(fn)
-      .catch((error) => {
-        logError('indexer', 'indexing task failed', error);
-      });
+    this.chain = this.chain.then(fn).catch((error) => {
+      logError(
+        'indexer',
+        'indexing task failed (e.g. remove); per-file index errors are logged above and do not throw',
+        error,
+      );
+    });
   }
 
   private async persistMeta(): Promise<void> {
@@ -150,8 +152,17 @@ export class Indexer {
     if (source === 'fullscan') {
       this.fullScanOrdinal += 1;
     }
+    const relForError = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
     try {
       await this.runIndexAbsoluteFileBody(absPath, source);
+    } catch (e) {
+      logError(
+        'indexer',
+        `file index failed (meta/vectors not updated for this path; will retry on next run): ${relForError}${
+          source === 'fullscan' ? this.fullScanFileProgress(source) : ''
+        }`,
+        e,
+      );
     } finally {
       if (source === 'fullscan') {
         this.fullScanFilesCompleted += 1;

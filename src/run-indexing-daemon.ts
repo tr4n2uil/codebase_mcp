@@ -54,7 +54,7 @@ export async function runIndexingDaemon(configIn?: AppConfig): Promise<void> {
       void indexer
         .reconcile()
         .catch((error) => {
-          console.error('[codebase-mcp] reconcile error:', error);
+          logError('daemon', 'reconcile() error (continuing; next interval will retry)', error);
         })
         .finally(() => {
           reconcileRunning = false;

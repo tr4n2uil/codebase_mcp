@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import { createRootGitignoreFilter } from './gitignore.js';
-import { logInfo } from './log.js';
+import { logError, logInfo } from './log.js';
 import { readMeta, writeMeta } from './meta.js';
 import { ChunkStore } from './store.js';
 import { Indexer } from './indexer.js';
@@ -85,9 +85,14 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
   assertMeta(meta);
   const indexer = new Indexer(config, ig, store, meta);
 
-  void indexer.fullScan().then(() => {
-    logInfo('bootstrap', 'initial full scan queue finished (indexer may still be embedding)');
-  });
+  void indexer
+    .fullScan()
+    .then(() => {
+      logInfo('bootstrap', 'initial full scan queue finished (indexer may still be embedding)');
+    })
+    .catch((e) => {
+      logError('bootstrap', 'initial full scan failed (daemon may exit depending on error)', e);
+    });
 
   const watcher = startWatcher(config, indexer);
 

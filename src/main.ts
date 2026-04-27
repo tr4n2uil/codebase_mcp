@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import type { AppConfig } from './config.js';
 import { loadConfig } from './config.js';
-import { initFileLogging, type FileLogKind } from './logger.js';
-import { logInfo } from './log.js';
+import { initFileLogging, registerFatalProcessLogging, type FileLogKind } from './logger.js';
+import { logError, logInfo } from './log.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
 import { ensureDaemonClient } from './ensure-daemon.js';
 import { ChunkStore } from './store.js';
@@ -31,7 +31,7 @@ async function runInlineMcpWithLocalIndexing(config: AppConfig): Promise<void> {
     void indexer
       .reconcile()
       .catch((error) => {
-        console.error('[codebase-mcp] reconcile error:', error);
+        logError('mcp', 'reconcile() error (continuing; next interval will retry)', error);
       })
       .finally(() => {
         reconcileRunning = false;
@@ -72,6 +72,7 @@ async function main(): Promise<void> {
 
   const fileLogKind: FileLogKind = argvHasDaemonFlag() ? 'daemon' : 'mcp';
   initFileLogging(config.indexDirAbs, fileLogKind);
+  registerFatalProcessLogging();
 
   if (argvHasDaemonFlag()) {
     logInfo('daemon', 'indexer daemon process (--daemon)');

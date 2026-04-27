@@ -47,6 +47,11 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | Must match the model output size |
 | `CODEBASE_MCP_EMBED_BATCH_SIZE` | `4` | Chunks per ONNX call (1–32). Smaller batches = more log lines and less RAM per step; first CPU run can still take many minutes. |
 | `CODEBASE_MCP_EMBED_INFER_LOG_MS` | `20000` | Log “still in inference” at this interval (ms) during ONNX (warmup + each batch) so you can tell work is still running. `0` disables. Example: `120000` for every 2 minutes. |
+| `CODEBASE_MCP_ORT_UNLIMITED` | `false` | If `1`/`true`, do **not** cap ONNX CPU threads (Transformers.js leaves ORT defaults → often **~100% × N cores** in Activity Monitor). Default caps keep **intra/inter** threads low so the OS is less likely to throttle or kill the daemon. |
+| `CODEBASE_MCP_ORT_INTRA_OP_THREADS` | `1` | ONNX [intra-op thread](https://onnxruntime.ai/docs/performance/tune-performance/threading.html) count (1 ≈ one core’s worth of parallel work inside an op; increase for speed, lower for cooler CPU). |
+| `CODEBASE_MCP_ORT_INTER_OP_THREADS` | `1` | ONNX inter-op threads (parallelism between graph nodes). |
+| `CODEBASE_MCP_ORT_SEQUENTIAL` | `true` | If `true`, use `executionMode: sequential` with the caps above. Set `false` only if you know the model benefits from parallel mode. |
+| `CODEBASE_MCP_ORT_WASM_NUM_THREADS` | `1` | If inference falls back to the **wasm** backend, cap `wasm.numThreads` (Transformers). |
 | `CODEBASE_MCP_CHUNK_LINES` | `60` | Lines per chunk |
 | `CODEBASE_MCP_CHUNK_OVERLAP` | `12` | Overlap between chunks |
 | `CODEBASE_MCP_MAX_FILE_BYTES` | `5242880` | Skip larger files |

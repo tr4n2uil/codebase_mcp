@@ -58,6 +58,19 @@ export interface AppConfig {
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
   logMcpTools: boolean;
+  /**
+   * When true, do not cap ONNX `InferenceSession` thread counts (Transformers.js otherwise leaves ORT
+   * defaults, which can use all cores and look like 400% CPU to macOS).
+   */
+  ortUnlimited: boolean;
+  /** ONNX `intraOpNumThreads` (see onnxruntime). Default 1. */
+  ortIntraOpThreads: number;
+  /** ONNX `interOpNumThreads`. Default 1. */
+  ortInterOpThreads: number;
+  /** When true, `executionMode: 'sequential'`. Default true with caps. */
+  ortSequential: boolean;
+  /** When wasm backend is used, `wasm.numThreads` (Transformers). Default 1. */
+  ortWasmNumThreads: number;
 }
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -118,6 +131,14 @@ export function loadConfig(): AppConfig {
   const rerankDebugScores = parseBool(process.env.CODEBASE_MCP_RERANK_DEBUG_SCORES, false);
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
+  const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
+  const ortIn = Number.parseInt(process.env.CODEBASE_MCP_ORT_INTRA_OP_THREADS || '1', 10);
+  const ortInter = Number.parseInt(process.env.CODEBASE_MCP_ORT_INTER_OP_THREADS || '1', 10);
+  const ortIntraOpThreads = Math.min(32, Math.max(1, Number.isFinite(ortIn) && ortIn > 0 ? ortIn : 1));
+  const ortInterOpThreads = Math.min(32, Math.max(1, Number.isFinite(ortInter) && ortInter > 0 ? ortInter : 1));
+  const ortSequential = parseBool(process.env.CODEBASE_MCP_ORT_SEQUENTIAL, true);
+  const ortW = Number.parseInt(process.env.CODEBASE_MCP_ORT_WASM_NUM_THREADS || '1', 10);
+  const ortWasmNumThreads = Math.min(32, Math.max(1, Number.isFinite(ortW) && ortW > 0 ? ortW : 1));
   return {
     watchRootAbs,
     indexDirAbs,
@@ -142,6 +163,11 @@ export function loadConfig(): AppConfig {
     rerankDebugScores,
     logIndexEachFile,
     logMcpTools,
+    ortUnlimited,
+    ortIntraOpThreads,
+    ortInterOpThreads,
+    ortSequential,
+    ortWasmNumThreads,
   };
 }
 

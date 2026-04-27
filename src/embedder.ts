@@ -1,6 +1,7 @@
 import { pipeline } from '@xenova/transformers';
 import type { AppConfig } from './config.js';
 import { logError, logInfo } from './log.js';
+import { applyOrtSessionCpuCaps } from './onnx-ort-caps.js';
 
 type FeatureExtractor = (texts: string | string[], options?: object) => Promise<{ data: Float32Array; dims?: number[] }>;
 
@@ -8,6 +9,7 @@ let extractorPromise: Promise<FeatureExtractor> | null = null;
 
 export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
   if (!extractorPromise) {
+    applyOrtSessionCpuCaps(config);
     logInfo('embedder', `loading ${config.embeddingModel} (first use; may download/cache)…`);
     extractorPromise = pipeline('feature-extraction', config.embeddingModel)
       .then(async (p) => {

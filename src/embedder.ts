@@ -58,6 +58,11 @@ export async function embedTexts(
   if (texts.length === 0) {
     return [];
   }
+  const inputChars = texts.reduce((n, t) => n + t.length, 0);
+  logInfo(
+    'embedder',
+    `inference: ${texts.length} input(s), ~${(inputChars / 1024).toFixed(0)} KiB text (this can take a while; high CPU is normal)…`,
+  );
   const tensor = await extractor(texts, { pooling: 'mean', normalize: true });
   return tensorToVectors(tensor, expectedDim);
 }

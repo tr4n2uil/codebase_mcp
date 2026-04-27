@@ -274,12 +274,10 @@ export class Indexer {
     const extractor = await getEmbedder(this.config);
     const batchSize = 8;
     const totalBatches = Math.max(1, Math.ceil(chunks.length / batchSize));
-    if (!this.config.logIndexEachFile) {
-      logInfo(
-        'indexer',
-        `embedding run ${rel}${this.fullScanFileProgress(source)} (${chunks.length} chunks, ${totalBatches} batch${totalBatches === 1 ? '' : 'es'})…`,
-      );
-    }
+    logInfo(
+      'indexer',
+      `embedding run ${rel}${this.fullScanFileProgress(source)} (${chunks.length} chunks, ${totalBatches} batch${totalBatches === 1 ? '' : 'es'}) — building embed strings then model inference per batch…`,
+    );
     const texts: string[] = [];
     for (let j = 0; j < chunks.length; j++) {
       if (j > 0 && j % 5_000 === 0) {
@@ -293,17 +291,15 @@ export class Indexer {
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
-      if (!this.config.logIndexEachFile) {
-        const logBatch =
-          batchNum === 1 ||
-          batchNum === totalBatches ||
-          (totalBatches > 1 && batchNum % 5 === 0);
-        if (logBatch) {
-          logInfo(
-            'indexer',
-            `embedding ${rel}${this.fullScanFileProgress(source)}: batch ${batchNum}/${totalBatches}`,
-          );
-        }
+      const logBatch =
+        batchNum === 1 ||
+        batchNum === totalBatches ||
+        (totalBatches > 1 && batchNum % 5 === 0);
+      if (logBatch) {
+        logInfo(
+          'indexer',
+          `embedding ${rel}${this.fullScanFileProgress(source)}: batch ${batchNum}/${totalBatches}`,
+        );
       }
       const part = await embedTexts(extractor, batch, this.config.embeddingDim);
       vectors.push(...part);

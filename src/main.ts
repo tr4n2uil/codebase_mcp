@@ -3,7 +3,8 @@ import { initFileLogging } from './logger.js';
 import { loadConfig } from './config.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
 import { ensureDaemonClient } from './ensure-daemon.js';
-import { createLocalMcpBackend, createRemoteMcpBackend, runMcpServer } from './mcp.js';
+import { ChunkStore } from './store.js';
+import { createLocalMcpBackend, createSharedDaemonMcpBackend, runMcpServer } from './mcp.js';
 import { runIndexingDaemon } from './run-indexing-daemon.js';
 
 initFileLogging();
@@ -48,10 +49,13 @@ async function runInlineMcpWithLocalIndexing(): Promise<void> {
   await runMcpServer(config, backend);
 }
 
+/** Default: stdio MCP only; indexer daemon is started automatically if not already up for this index (see `ensureDaemonClient`). */
 async function runMcpWithSharedDaemon(): Promise<void> {
   const config = loadConfig();
   const client = await ensureDaemonClient(config);
-  const backend = createRemoteMcpBackend(client);
+  const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim);
+  await store.initReadOnly();
+  const backend = createSharedDaemonMcpBackend(config, store, client);
   await runMcpServer(config, backend);
 }
 

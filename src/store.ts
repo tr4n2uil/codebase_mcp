@@ -1,3 +1,4 @@
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
 
@@ -34,6 +35,23 @@ export class ChunkStore {
 
   async init(): Promise<void> {
     await fs.mkdir(this.lanceDirAbs, { recursive: true });
+    this.conn = await connect(this.lanceDirAbs);
+    const names = await this.conn.tableNames();
+    if (names.includes(TABLE)) {
+      this.table = await this.conn.openTable(TABLE);
+    }
+  }
+
+  /**
+   * Open LanceDB for read/search only: no create dir or table. Used by MCP stdio when the
+   * indexing daemon is the sole writer. Safe to call while the daemon is writing.
+   */
+  async initReadOnly(): Promise<void> {
+    try {
+      await fs.access(this.lanceDirAbs, fsConstants.F_OK);
+    } catch {
+      return;
+    }
     this.conn = await connect(this.lanceDirAbs);
     const names = await this.conn.tableNames();
     if (names.includes(TABLE)) {

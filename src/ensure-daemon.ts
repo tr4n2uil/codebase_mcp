@@ -66,7 +66,12 @@ async function tryRemoveStaleSpawnLock(lockPath: string): Promise<void> {
 }
 
 /**
- * Connects to an existing daemon or acquires a spawn lock, starts `main.js --daemon`, and waits until ping succeeds.
+ * Ensures the indexer daemon for this index is running.
+ *
+ * MCP hosts typically run **only** `node dist/main.js` (no `--daemon`). This function:
+ * 1. Pings the daemon socket for `config.indexDirAbs` (same process env → same `CODEBASE_MCP_ROOT` / index as the spawned child).
+ * 2. If nothing answers: take `spawn.lock`, `spawn` `node main.js --daemon` with **current** `process.env`, wait until `ping` succeeds, release lock.
+ * 3. Returns a client connected to that daemon (for `reindex` IPC only).
  */
 export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClient> {
   const listenPath = getDaemonListenPath(config.indexDirAbs);

@@ -21,20 +21,20 @@
 3. **Chunker** — split file contents into chunks (by line windows with overlap; language-aware optional later).
 4. **Embedder** — **`@xenova/transformers`** (ONNX Runtime in Node) for **local** open-source embedding models; batch for throughput. Optional paid API could exist behind a flag later, but not as the default path.
 5. **Vector store** — persistent local DB **per watch root (per repo checkout)** — see **Index storage** below; metadata includes path, chunk index, mtime/hash, optional language.
-6. **MCP layer** — **stdio** transport to the host; tool calls are served by a **thin Node process** that delegates indexing and search to a **long-lived indexing daemon** when daemon mode is on (default). See **Process model: shared indexing daemon** below.
+6. **MCP layer** — **stdio** transport; default mode uses a **long-lived indexing daemon** for the watcher and writes, while each MCP process **reads LanceDB locally** for search/stats. See **Process model** below.
 
 ## Process model: shared indexing daemon (v1)
 
 **Problem:** Each MCP session historically spawned a full Node process with its own **watcher**, **reconcile loop**, and **embedding stack** → duplicated CPU, RAM, and file descriptors.
 
-**Default (daemon mode):** Running `dist/main.js` **without** `--daemon` starts an **MCP stdio client** only. It:
+**Default (daemon mode):** The MCP host runs **only** `dist/main.js` (no `--daemon` in `args`). Running that binary starts an **MCP stdio server** that:
 
 1. Resolves config from **`CODEBASE_MCP_ROOT`** / **`CODEBASE_MCP_INDEX_DIR`** (same as the daemon).
-2. **Pings** the daemon on a transport keyed by the index directory:
-   - **Unix:** socket at **`.codebase-mcp-daemon/socket`**
-   - **Windows:** named pipe **`\\.\pipe\codebase-mcp-<sha256(indexDir)>`** (short hash prefix)
-3. If nothing answers: acquires **`spawn.lock`** under **`.codebase-mcp-daemon/`**, optionally removes a **stale Unix socket**, then **`spawn`s** `node dist/main.js --daemon` **detached** (`stdio: 'ignore'` for the child), waits until **ping** succeeds, then connects.
-4. Serves MCP tools by sending **NDJSON** requests over that connection (`ping`, `search`, `stats`, `reindex`) and returning results. **Embeddings for search** run inside the daemon so the model is not loaded per MCP session.
+2. **Ensures the indexing daemon** is up (ping on IPC; if missing: `spawn.lock` under **`<indexDir>/.codebase-mcp-daemon/`**, spawn `node dist/main.js --daemon` detached, wait for ping):
+   - **Unix:** socket at **`<indexDir>/.codebase-mcp-daemon/socket`**
+   - **Windows:** named pipe **`\\.\pipe\codebase-mcp-<sha256(indexDir)>`** (hash of index path)
+3. **Opens the same LanceDB read-only in this process** and serves **`codebase_search` / `codebase_stats`** (query embedding runs **here** so each session loads the model once per process).
+4. Forwards **`codebase_reindex` only** over the IPC connection to the daemon (sole writer + watcher).
 
 **Daemon process (`node dist/main.js --daemon`):** Owns exactly one indexing pipeline per **`CODEBASE_MCP_INDEX_DIR`**:
 

@@ -22,7 +22,9 @@ export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
 node dist/main.js
 ```
 
-**Process model (default):** the stdio process is a thin **MCP client**. It connects to a **single indexing daemon** per `CODEBASE_MCP_INDEX_DIR` (Unix domain socket or Windows named pipe under `.codebase-mcp-daemon/`). If nothing is listening, it acquires a short-lived spawn lock, starts `node dist/main.js --daemon` detached, then talks to that daemon so **only one watcher + one reconcile loop** run for that index. You can still start the daemon yourself (same env as MCP):
+**You only need `node dist/main.js` in Cursor (or any MCP client).** Do not pass `--daemon` there: if no indexer is listening yet for this **same** `CODEBASE_MCP_ROOT` + `CODEBASE_MCP_INDEX_DIR` (resolved the same way), the first `main.js` will **start** `node dist/main.js --daemon` in the background with the **same `env`**.
+
+**Process model (default):** one **indexing daemon** per `CODEBASE_MCP_INDEX_DIR` (watcher + ingest + **sole writer** to LanceDB). A Unix domain socket or Windows named pipe under **`<index>/.codebase-mcp-daemon/`** is used only to **start the daemon if needed (ping) and to run `codebase_reindex`**. Each stdio `node dist/main.js` process **reads the same LanceDB** for **`codebase_search` / `codebase_stats`** and runs **query embeddings locally** (so multiple MCP clients do not route search through IPC). You can also start the daemon yourself:
 
 ```bash
 export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo

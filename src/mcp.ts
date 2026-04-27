@@ -5,7 +5,12 @@ import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
 import type { ChunkStore } from './store.js';
 import type { McpTextContent } from './mcp-tools.js';
-import { runCodebaseSearch, runCodebaseStats, runCodebaseReindex } from './mcp-tools.js';
+import {
+  runCodebaseSearch,
+  runCodebaseStats,
+  runCodebaseStatsFromStore,
+  runCodebaseReindex,
+} from './mcp-tools.js';
 import { DaemonClient } from './daemon-client.js';
 
 type ToolResult = { content: McpTextContent[] };
@@ -28,25 +33,21 @@ export function createLocalMcpBackend(
   };
 }
 
-export function createRemoteMcpBackend(client: DaemonClient): CodebaseMcpBackend {
+/**
+ * Default MCP mode: search + stats run locally (LanceDB read + local query embedding);
+ * only `codebase_reindex` is sent to the indexing daemon (sole writer / watcher).
+ */
+export function createSharedDaemonMcpBackend(
+  config: AppConfig,
+  store: ChunkStore,
+  client: DaemonClient,
+): CodebaseMcpBackend {
   const mapError = (error: string): ToolResult => ({
     content: [{ type: 'text' as const, text: `Daemon error: ${error}` }],
   });
   return {
-    codebase_search: async (args) => {
-      const resp = await client.call('search', args);
-      if (!resp.ok) {
-        return mapError(resp.error);
-      }
-      return resp.result as ToolResult;
-    },
-    codebase_stats: async () => {
-      const resp = await client.call('stats');
-      if (!resp.ok) {
-        return mapError(resp.error);
-      }
-      return resp.result as ToolResult;
-    },
+    codebase_search: (args) => runCodebaseSearch(config, store, args),
+    codebase_stats: () => runCodebaseStatsFromStore(config, store),
     codebase_reindex: async (args) => {
       const resp = await client.call('reindex', args);
       if (!resp.ok) {
@@ -67,7 +68,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository. Set CODEBASE_MCP_ROOT to the repo root; indexing respects .gitignore unless paths are listed in CODEBASE_MCP_FORCE_INCLUDE. Vector data defaults to codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR).',
+        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR). A background indexer daemon is the only writer.',
       inputSchema: {
         query: z.string().min(1).describe('Natural language search query'),
         limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),

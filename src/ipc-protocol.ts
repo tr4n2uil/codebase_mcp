@@ -1,4 +1,5 @@
-export type IpcCmd = 'ping' | 'search' | 'stats' | 'reindex';
+/** Indexer daemon: ping + reindex only. Search/stats use LanceDB read in each MCP process. */
+export type IpcCmd = 'ping' | 'reindex';
 
 export interface IpcRequest {
   id: string | number;

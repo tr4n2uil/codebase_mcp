@@ -23,7 +23,7 @@ export async function runIndexingDaemon(): Promise<void> {
   const listenPath = getDaemonListenPath(config.indexDirAbs);
   await fs.mkdir(daemonStateDir(config.indexDirAbs), { recursive: true });
 
-  const { indexer, store, closeWatcher } = await bootstrapIndexing(config);
+  const { indexer, closeWatcher } = await bootstrapIndexing(config);
 
   let reconcileRunning = false;
   setInterval(() => {
@@ -45,8 +45,8 @@ export async function runIndexingDaemon(): Promise<void> {
     await unlinkIfExists(listenPath);
   }
 
-  const ipcServer: net.Server = await startDaemonIpcServer(config, indexer, store, listenPath);
-  console.error(`[codebase-mcp] Daemon listening on ${listenPath}`);
+  const ipcServer: net.Server = await startDaemonIpcServer(config, indexer, listenPath);
+  console.error(`[codebase-mcp] Daemon listening on ${listenPath} (reindex IPC; search uses local LanceDB reads in each MCP process)`);
 
   const shutdown = async () => {
     await new Promise<void>((resolve) => {

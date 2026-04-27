@@ -2,6 +2,7 @@ import path from 'node:path';
 import { embedTexts, getEmbedder } from './embedder.js';
 import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
+import { readMeta } from './meta.js';
 import type { ChunkStore } from './store.js';
 import { rerankSearchHits } from './rerank.js';
 
@@ -51,6 +52,27 @@ export async function runCodebaseStats(
       chunk_count: chunks,
       embedding_model: s.embeddingModel,
       last_full_scan_at: s.lastFullScanAt,
+    },
+    null,
+    2,
+  );
+  return { content: [{ type: 'text' as const, text: body }] };
+}
+
+/** Stats for MCP clients that only have read access to `meta.json` + Lance (no in-process `Indexer`). */
+export async function runCodebaseStatsFromStore(
+  config: AppConfig,
+  store: ChunkStore,
+): Promise<{ content: McpTextContent[] }> {
+  const meta = await readMeta(config.metaPathAbs);
+  const chunks = await store.countChunks();
+  const body = JSON.stringify(
+    {
+      watch_root: config.watchRootAbs,
+      indexed_file_count: meta ? Object.keys(meta.fileHashes).length : 0,
+      chunk_count: chunks,
+      embedding_model: meta?.embeddingModel ?? config.embeddingModel,
+      last_full_scan_at: meta?.lastFullScanAt ?? null,
     },
     null,
     2,

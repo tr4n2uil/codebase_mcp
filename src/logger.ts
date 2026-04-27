@@ -43,7 +43,7 @@ export function initFileLogging(): string {
 
   const banner = `[codebase-mcp] pid=${process.pid} logging to ${logFilePath}\n`;
   stream.write(banner);
-  // origWrite(banner);
+  origWrite(banner);
   return logFilePath;
 }
 

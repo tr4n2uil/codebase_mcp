@@ -36,7 +36,7 @@ flowchart LR
 - **Line mode** — `chunkByLines*`: fixed window of `CODEBASE_MCP_CHUNK_LINES` with `CODEBASE_MCP_CHUNK_OVERLAP` (see `config.ts` defaults in README).
 - **Code-aware mode** (default) — `chunkCodeAware`: heuristically detects symbol lines (JS/TS, Python, generic `func`/`class` patterns), splits on symbol boundaries, then falls back to line windows for long spans. Large files use **incremental** line array building and **yields to the event loop** to keep the daemon responsive (`event-loop-yield.ts`, `chunker.ts`).
 
-**Embedding string** (what gets embedded) is not raw text alone: the indexer prepends `path=`, and optional `lang=`, `symbol=`, `kind=` tags for context (`indexer.ts` / `embeddingTextForChunk`).
+**Embedding string** (what gets embedded) is not raw text alone: the indexer prepends `path=`, and optional `lang=`, `symbol=`, `kind=` tags for context (`indexer.ts` / `embeddingTextForChunk`). The optional `def=…` tag is **off by default** (`CODEBASE_MCP_EMBED_DEF_TAG`); `definition_of` is still written to Lance for definition-intent rerank.
 
 ## Embedding
 

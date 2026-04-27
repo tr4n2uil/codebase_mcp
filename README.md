@@ -72,6 +72,7 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | **Both** | Vector dimension; must match model and index. |
 | `CODEBASE_MCP_EMBED_BATCH_SIZE` | `4` | **Both** | Chunks (daemon) or batching behavior when embedding; query path uses batches too. |
 | `CODEBASE_MCP_EMBED_INFER_LOG_MS` | `20000` | **Both** | Heartbeat while ONNX runs (`0` = off). |
+| `CODEBASE_MCP_EMBED_DEF_TAG` | `false` | **Daemon** | When `1`/`true`, the indexer includes `def=…` in the text passed to the embedder (re-embed to apply). Default `false` (**V1**): `definition_of` is only in Lance and used for definition-intent **rerank** — vectors are not steered by the definition label. Set when you want **V2** (definition signal in the embedding as well). |
 | `CODEBASE_MCP_ORT_UNLIMITED` | `false` | **Both** | ONNX thread caps: `false` = cap CPU. |
 | `CODEBASE_MCP_ORT_INTRA_OP_THREADS` | `1` | **Both** | ONNX intra-op threads. |
 | `CODEBASE_MCP_ORT_INTER_OP_THREADS` | `1` | **Both** | ONNX inter-op threads. |
@@ -118,7 +119,7 @@ export CODEBASE_MCP_EMBEDDING_DIM=384
 
 When changing embedding model/dimension or code-aware chunking behavior, use a fresh `CODEBASE_MCP_INDEX_DIR` (or reindex) to avoid mixing old and new vector/chunk layouts.
 
-**Definition boost:** after upgrading, run the **indexer/daemon** at least once (or `codebase_reindex`) so LanceDB gets the `definition_of` column (auto-added on writer `init`) and files are re-embedded with definition metadata. Until then, search still works; “where is X defined?” boosting has no effect.
+**Definition boost (V1 default):** run the **indexer/daemon** at least once (or `codebase_reindex`) so LanceDB has the `definition_of` column and chunks are indexed with code-aware metadata. Rerank uses `definition_of` for *where is X defined?* when `CODEBASE_MCP_DEF_BOOST` is on. Embeddings do **not** include `def=` unless you set **`CODEBASE_MCP_EMBED_DEF_TAG=1`** and re-embed (V2). Until `definition_of` is populated, search still works; definition boosting has no effect.
 
 Large repos: native recursive watching can hit **EMFILE: too many open files**; polling is the default. You can also raise the process limit (e.g. `ulimit -n 10240`).
 

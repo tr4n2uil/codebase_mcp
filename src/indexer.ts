@@ -45,7 +45,12 @@ async function sha256HexWithYields(content: string): Promise<string> {
   return hash.digest('hex');
 }
 
-function embeddingTextForChunk(relPath: string, chunk: TextChunk): string {
+/**
+ * Build the string passed to the embedder. When `includeDefTag` is false (default), `definition_of` is
+ * omitted from the prefix so vectors stay driven by code + path/symbol; Lance still stores `definition_of`
+ * for definition-intent rerank (`CODEBASE_MCP_EMBED_DEF_TAG=1` enables the `def=` tag — re-embed to apply).
+ */
+function embeddingTextForChunk(relPath: string, chunk: TextChunk, includeDefTag: boolean): string {
   const tags = [`path=${relPath}`];
   if (chunk.language) {
     tags.push(`lang=${chunk.language}`);
@@ -56,7 +61,7 @@ function embeddingTextForChunk(relPath: string, chunk: TextChunk): string {
   if (chunk.symbolKind) {
     tags.push(`kind=${chunk.symbolKind}`);
   }
-  if (chunk.definitionOf) {
+  if (includeDefTag && chunk.definitionOf) {
     tags.push(`def=${chunk.definitionOf}`);
   }
   return `[${tags.join('][')}]\n${chunk.text}`;
@@ -309,7 +314,7 @@ export class Indexer {
         await yieldToEventLoop();
       }
       const c = chunks[j]!;
-      const embedText = embeddingTextForChunk(rel, c);
+      const embedText = embeddingTextForChunk(rel, c, this.config.embedDefTagInChunk);
       texts.push(embedText.length > MAX_CHUNK_CHARS ? embedText.slice(0, MAX_CHUNK_CHARS) : embedText);
     }
     const vectors: Float32Array[] = [];

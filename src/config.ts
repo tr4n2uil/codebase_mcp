@@ -104,6 +104,12 @@ export interface AppConfig {
    * `components/`, `app/javascript/`). `CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST=0` disables.
    */
   frontendPathQueryBoost: boolean;
+  /**
+   * When true, the indexer includes `def=…` in the **embedding** prefix (alongside `path=`, `symbol=`, etc.).
+   * Default **false** (V1): `definition_of` is stored in Lance and used for definition-intent **rerank** only,
+   * so vectors are not steered by definition labels. Set `CODEBASE_MCP_EMBED_DEF_TAG=1` for V2 (re-embed to apply).
+   */
+  embedDefTagInChunk: boolean;
   /** Log every indexed file path (can be noisy on large repos). */
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
@@ -251,6 +257,7 @@ export function loadConfig(): AppConfig {
   })();
   const testPathQueryBoost = parseBool(process.env.CODEBASE_MCP_TEST_PATH_QUERY_BOOST, true);
   const frontendPathQueryBoost = parseBool(process.env.CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST, true);
+  const embedDefTagInChunk = parseBool(process.env.CODEBASE_MCP_EMBED_DEF_TAG, false);
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
@@ -299,6 +306,7 @@ export function loadConfig(): AppConfig {
     definitionBoost,
     testPathQueryBoost,
     frontendPathQueryBoost,
+    embedDefTagInChunk,
     logIndexEachFile,
     logMcpTools,
     ortUnlimited,

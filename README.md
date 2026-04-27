@@ -6,6 +6,8 @@ Local **semantic search** over a repository: watches files (with `.gitignore` + 
 
 **Architecture** (diagrams, subsystems, IPC, storage): see **[`docs/architecture/README.md`](docs/architecture/README.md)**.
 
+License: Apache-2.0 (see `LICENSE`).
+
 # Quickstart
 
 1. Install package

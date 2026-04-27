@@ -28,6 +28,11 @@ export function createRootGitignoreFilter(watchRootAbs: string): Ignore {
 
 /** Returns true if this path should be excluded (relative POSIX path from watch root). */
 export function isIgnored(ig: Ignore, relPosix: string, isDirectory: boolean): boolean {
+  // Empty = watch root (e.g. chokidar/polling may emit the root). Building `${''}/` would pass
+  // '/' to `ignore`, which rejects non–path.relative() paths and throws RangeError.
+  if (relPosix === '' || relPosix === '/') {
+    return false;
+  }
   const p = isDirectory && !relPosix.endsWith('/') ? `${relPosix}/` : relPosix;
   return ig.ignores(p);
 }

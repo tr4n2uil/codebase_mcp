@@ -39,6 +39,7 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
       watchRoot: config.watchRootAbs,
       lastFullScanAt: null,
       fileHashes: {},
+      fileStatCache: {},
     };
     await writeMeta(config.metaPathAbs, meta);
   }
@@ -58,6 +59,7 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
       watchRoot: config.watchRootAbs,
       lastFullScanAt: null,
       fileHashes: {},
+      fileStatCache: {},
     };
     await writeMeta(config.metaPathAbs, meta);
   }
@@ -71,6 +73,7 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
     }
     meta.watchRoot = config.watchRootAbs;
     meta.fileHashes = {};
+    meta.fileStatCache = {};
     meta.lastFullScanAt = null;
     await writeMeta(config.metaPathAbs, meta);
   }

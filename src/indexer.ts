@@ -72,11 +72,15 @@ async function walkFiles(
   return out;
 }
 
+type IndexFileSource = 'fullscan' | 'watcher';
+
 export class Indexer {
   private chain: Promise<void> = Promise.resolve();
   private meta: MetaFile;
   /** Count of files successfully re-indexed in the current pass (for progress logging). */
   private indexPassCount = 0;
+  /** Files completed in the current `fullScan` (including skips); used for periodic progress. */
+  private fullScanFilesCompleted = 0;
 
   constructor(
     private readonly config: AppConfig,
@@ -99,7 +103,31 @@ export class Indexer {
     await writeMeta(this.config.metaPathAbs, this.meta);
   }
 
-  async indexAbsoluteFile(absPath: string): Promise<void> {
+  private setFileStatCache(
+    rel: string,
+    st: { size: number; mtimeMs: number },
+  ): void {
+    this.meta.fileStatCache[rel] = { size: st.size, mtimeMs: st.mtimeMs };
+  }
+
+  async indexAbsoluteFile(absPath: string, source: IndexFileSource = 'watcher'): Promise<void> {
+    try {
+      await this.runIndexAbsoluteFileBody(absPath, source);
+    } finally {
+      if (source === 'fullscan') {
+        this.fullScanFilesCompleted += 1;
+        const n = this.fullScanFilesCompleted;
+        if (n === 1 || n % 200 === 0) {
+          logInfo(
+            'indexer',
+            `full scan: ${n} file(s) rechecked; ${this.indexPassCount} fully re-embedded in this pass so far`,
+          );
+        }
+      }
+    }
+  }
+
+  private async runIndexAbsoluteFileBody(absPath: string, source: IndexFileSource): Promise<void> {
     const rel = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
     if (isSafetyIgnored(rel)) {
       return;
@@ -126,6 +154,15 @@ export class Indexer {
       }
       return;
     }
+    const fp = this.meta.fileStatCache[rel];
+    if (
+      fp !== undefined &&
+      this.meta.fileHashes[rel] !== undefined &&
+      st.size === fp.size &&
+      st.mtimeMs === fp.mtimeMs
+    ) {
+      return;
+    }
     let content: string;
     try {
       content = await fs.readFile(absPath, 'utf8');
@@ -135,7 +172,14 @@ export class Indexer {
     }
     const hash = sha256Hex(content);
     if (this.meta.fileHashes[rel] === hash) {
+      this.setFileStatCache(rel, st);
+      if (source === 'watcher') {
+        await this.persistMeta();
+      }
       return;
+    }
+    if (!this.config.logIndexEachFile) {
+      logInfo('indexer', `re-embed ${rel}: loading model if needed, then chunking + embedding…`);
     }
     const extractor = await getEmbedder(this.config);
     const chunks = this.config.codeAwareChunking
@@ -144,18 +188,31 @@ export class Indexer {
     if (chunks.length === 0) {
       await this.store.deleteByPath(rel);
       this.meta.fileHashes[rel] = hash;
-      await this.persistMeta();
+      this.setFileStatCache(rel, st);
+      if (source === 'watcher') {
+        await this.persistMeta();
+      }
       return;
+    }
+    const batchSize = 8;
+    const totalBatches = Math.max(1, Math.ceil(chunks.length / batchSize));
+    if (!this.config.logIndexEachFile) {
+      logInfo('indexer', `re-embedding ${rel} (${chunks.length} chunks, ${totalBatches} batch${totalBatches === 1 ? '' : 'es'})…`);
     }
     const texts = chunks.map((c) => {
       const embedText = embeddingTextForChunk(rel, c);
       return embedText.length > MAX_CHUNK_CHARS ? embedText.slice(0, MAX_CHUNK_CHARS) : embedText;
     },
     );
-    const batchSize = 8;
     const vectors: Float32Array[] = [];
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
+      if (totalBatches > 1 && !this.config.logIndexEachFile) {
+        if (batchNum === 1 || batchNum === totalBatches || batchNum % 5 === 0) {
+          logInfo('indexer', `embedding ${rel}: batch ${batchNum}/${totalBatches}`);
+        }
+      }
       const part = await embedTexts(extractor, batch, this.config.embeddingDim);
       vectors.push(...part);
     }
@@ -172,12 +229,13 @@ export class Indexer {
     }));
     await this.store.addRows(rows);
     this.meta.fileHashes[rel] = hash;
+    this.setFileStatCache(rel, st);
     this.meta.lastFullScanAt = new Date().toISOString();
     await this.persistMeta();
     this.indexPassCount += 1;
     if (this.config.logIndexEachFile) {
       logInfo('indexer', `indexed ${rel} (${chunks.length} chunk${chunks.length === 1 ? '' : 's'})`);
-    } else if (this.indexPassCount % 25 === 0) {
+    } else if (this.indexPassCount % 10 === 0) {
       logInfo('indexer', `progress: ${this.indexPassCount} file(s) re-indexed in this pass (last: ${rel})`);
     }
   }
@@ -187,12 +245,13 @@ export class Indexer {
       logInfo('indexer', `remove from index: ${relPosix}`);
     }
     delete this.meta.fileHashes[relPosix];
+    delete this.meta.fileStatCache[relPosix];
     await this.store.deleteByPath(relPosix);
     await this.persistMeta();
   }
 
-  scheduleIndexFile(absPath: string): void {
-    this.enqueue(() => this.indexAbsoluteFile(absPath));
+  scheduleIndexFile(absPath: string, source: IndexFileSource = 'watcher'): void {
+    this.enqueue(() => this.indexAbsoluteFile(absPath, source));
   }
 
   scheduleRemove(absPath: string): void {
@@ -210,12 +269,18 @@ export class Indexer {
       this.config.forceIncludeRelPosix,
     );
     this.indexPassCount = 0;
-    logInfo('indexer', `full scan: queuing ${files.length} file(s) under ${this.config.watchRootAbs}`);
+    this.fullScanFilesCompleted = 0;
+    logInfo(
+      'indexer',
+      `full scan: rechecking ${files.length} file(s) under ${this.config.watchRootAbs} (unchanged: stat cache in meta skips read; content hash skips re-embed)`,
+    );
     for (const abs of files) {
-      this.scheduleIndexFile(abs);
+      this.scheduleIndexFile(abs, 'fullscan');
     }
     await this.chain;
-    logInfo('indexer', `full scan: queue drained (${this.indexPassCount} file(s) re-indexed/updated in this pass)`);
+    this.meta.lastFullScanAt = new Date().toISOString();
+    await this.persistMeta();
+    logInfo('indexer', `full scan: queue drained (${this.indexPassCount} file(s) re-embedded; others skipped or hash-only) in this pass`);
   }
 
   getSnapshotStats(): {

@@ -78,12 +78,19 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
   const listenPath = getDaemonListenPath(config.indexDirAbs);
   const stateDir = daemonStateDir(config.indexDirAbs);
   await fs.mkdir(stateDir, { recursive: true });
+  logInfo('mcp', `ensuring indexer daemon (socket=${listenPath})`);
 
   const deadline = Date.now() + 60_000;
+  let waitLogged = false;
   while (Date.now() < deadline) {
     const ready = await tryPing(listenPath);
     if (ready) {
+      logInfo('mcp', 'indexer daemon ready (ping ok)');
       return ready;
+    }
+    if (!waitLogged) {
+      logInfo('mcp', 'indexer daemon not ready yet; retrying, acquiring spawn lock, or waiting for peer…');
+      waitLogged = true;
     }
 
     const lockPath = spawnLockPath(config.indexDirAbs);
@@ -123,6 +130,7 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
       });
       child.unref();
 
+      logInfo('mcp', 'waiting for spawned daemon to accept ping on socket…');
       const innerDeadline = Date.now() + 45_000;
       while (Date.now() < innerDeadline) {
         const c = await tryPing(listenPath);

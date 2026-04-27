@@ -8,6 +8,11 @@ export interface MetaFile {
   lastFullScanAt: string | null;
   /** Relative POSIX path -> sha256 hex of file content */
   fileHashes: Record<string, string>;
+  /**
+   * Last statted size + mtime for each indexed path. When both match, we skip re-reading the file
+   * and treat it as unchanged (vectors still match what’s in LanceDB).
+   */
+  fileStatCache: Record<string, { size: number; mtimeMs: number }>;
 }
 
 export async function readMeta(metaPathAbs: string): Promise<MetaFile | null> {
@@ -16,6 +21,9 @@ export async function readMeta(metaPathAbs: string): Promise<MetaFile | null> {
     const parsed = JSON.parse(raw) as MetaFile;
     if (typeof parsed.fileHashes !== 'object' || parsed.fileHashes === null) {
       parsed.fileHashes = {};
+    }
+    if (typeof parsed.fileStatCache !== 'object' || parsed.fileStatCache === null) {
+      parsed.fileStatCache = {};
     }
     return parsed;
   } catch {

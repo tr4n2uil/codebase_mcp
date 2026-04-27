@@ -5,24 +5,24 @@ import { StringDecoder } from 'node:string_decoder';
 export type FileLogKind = 'daemon' | 'mcp';
 
 let logFilePath = '';
-let stream: fs.WriteStream | null = null;
+let fileLoggingInited = false;
 let fileDecoder: StringDecoder | null = null;
 let lineBuf = '';
 
 /**
  * Append all stderr (including `console.error`) to `<indexDir>/.logs/mcp.log` or `daemon.log`,
  * while still writing to the original stderr. Each *line* in the file is prefixed with `[pid=…] `.
+ * Lines are written with `appendFileSync` so `tail` and IDEs see new rows immediately (no `WriteStream` buffer delay).
  * `indexDir` is the resolved `CODEBASE_MCP_INDEX_DIR` (e.g. `.../codebase_mcp/db/<repo>/`), next to `meta.json` and `lancedb/`.
  */
 export function initFileLogging(indexDirAbs: string, kind: FileLogKind): string {
-  if (stream) {
+  if (fileLoggingInited) {
     return logFilePath;
   }
   const dir = path.join(indexDirAbs, '.logs');
   fs.mkdirSync(dir, { recursive: true });
   const name = kind === 'daemon' ? 'daemon.log' : 'mcp.log';
   logFilePath = path.join(dir, name);
-  stream = fs.createWriteStream(logFilePath, { flags: 'a', autoClose: false });
   fileDecoder = new StringDecoder('utf8');
 
   const pid = process.pid;
@@ -30,7 +30,7 @@ export function initFileLogging(indexDirAbs: string, kind: FileLogKind): string 
 
   const writePrefixedLineToFile = (line: string) => {
     try {
-      stream!.write(linePrefix + line + '\n', 'utf8');
+      fs.appendFileSync(logFilePath, linePrefix + line + '\n', 'utf8');
     } catch {
       /* ignore */
     }
@@ -87,11 +87,8 @@ export function initFileLogging(indexDirAbs: string, kind: FileLogKind): string 
 
   const banner = `[codebase-mcp] logging to ${logFilePath} (appending, pid=${pid})\n`;
   origWrite(banner);
-  try {
-    stream.write(linePrefix + `[codebase-mcp] file logging started\n`, 'utf8');
-  } catch {
-    /* ignore */
-  }
+  writePrefixedLineToFile(`[codebase-mcp] file logging started`);
+  fileLoggingInited = true;
   return logFilePath;
 }
 

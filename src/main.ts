@@ -54,6 +54,7 @@ async function runMcpWithSharedDaemon(config: AppConfig): Promise<void> {
   logInfo('mcp', `stdio MCP starting (mode: shared daemon; search/stats=local LanceDB; reindex=IPC)`);
   const client = await ensureDaemonClient(config);
   const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim);
+  logInfo('mcp', 'opening LanceDB read-only (connect + open table if present)…');
   await store.initReadOnly();
   logInfo('mcp', `read-only LanceDB at ${config.lanceDirAbs}`);
   const backend = createSharedDaemonMcpBackend(config, store, client);

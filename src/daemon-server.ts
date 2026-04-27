@@ -12,6 +12,42 @@ const reindexPayloadSchema = z.object({
   path: z.string().optional(),
 });
 
+function isBenignClientDisconnect(err: unknown): boolean {
+  const c = (err as NodeJS.ErrnoException).code;
+  return c === 'EPIPE' || c === 'ECONNRESET' || c === 'ECONNABORTED';
+}
+
+/**
+ * `socket.write` without a callback can throw `EPIPE` if the client closed the connection; the same
+ * error may also be emitted on `socket` if unhandled, which crashes the daemon. Using the callback
+ * + an error handler avoids uncaught `uncaughtException: write EPIPE`.
+ */
+function writeIpcLine(socket: net.Socket, msg: IpcRequest | IpcResponse): void {
+  if (socket.destroyed) {
+    return;
+  }
+  const data = encodeMessage(msg);
+  try {
+    socket.write(data, (err) => {
+      if (err && !isBenignClientDisconnect(err)) {
+        logError('ipc', 'write failed after response', err);
+      }
+    });
+  } catch (e) {
+    if (!isBenignClientDisconnect(e)) {
+      logError('ipc', 'write threw (response)', e);
+    }
+  }
+}
+
+function attachIpcClientSocketErrorSink(socket: net.Socket): void {
+  socket.on('error', (err: NodeJS.ErrnoException) => {
+    if (!isBenignClientDisconnect(err)) {
+      logError('ipc', 'client socket error', err);
+    }
+  });
+}
+
 async function dispatch(req: IpcRequest, indexing: Promise<IndexingHandles>): Promise<IpcResponse> {
   const id = req.id;
   switch (req.cmd) {
@@ -50,6 +86,7 @@ export function startDaemonIpcServer(
 ): Promise<net.Server> {
   return new Promise((resolve, reject) => {
     const server = net.createServer((socket) => {
+      attachIpcClientSocketErrorSink(socket);
       let lineChain: Promise<void> = Promise.resolve();
       const rl = readline.createInterface({ input: socket, crlfDelay: Infinity });
       rl.on('line', (line) => {
@@ -60,27 +97,23 @@ export function startDaemonIpcServer(
               req = parseLine(line) as IpcRequest;
             } catch (e) {
               const msg = e instanceof Error ? e.message : String(e);
-              if (!socket.destroyed) {
-                socket.write(encodeMessage({ id: 0, ok: false, error: msg }));
-              }
+              writeIpcLine(socket, { id: 0, ok: false, error: msg });
               return;
             }
             const id = req.id;
             try {
               const resp = await dispatch(req, indexing);
-              if (!socket.destroyed) {
-                socket.write(encodeMessage(resp));
-              }
+              writeIpcLine(socket, resp);
             } catch (e) {
               const msg = e instanceof Error ? e.message : String(e);
               logError('ipc', `dispatch failed for cmd=${String(req.cmd)} id=${String(id)}`, e);
-              if (!socket.destroyed) {
-                socket.write(encodeMessage({ id, ok: false, error: msg }));
-              }
+              writeIpcLine(socket, { id, ok: false, error: msg });
             }
           })
           .catch((e) => {
-            logError('ipc', 'connection handler error', e);
+            if (!isBenignClientDisconnect(e)) {
+              logError('ipc', 'connection handler error', e);
+            }
           });
       });
     });

@@ -15,7 +15,8 @@ function mainScriptPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), 'main.js');
 }
 
-const PING_ATTEMPT_TIMEOUT_MS = 8_000;
+/** Under CPU-heavy embedding, connect + one IPC line can take >8s; false failures led to spawner unlinking a live socket. */
+const PING_ATTEMPT_TIMEOUT_MS = 20_000;
 
 /** Shorter connect+ping for “is a daemon already bound here?” in `--daemon` idempotent start. */
 const DUPLICATE_DAEMON_PING_TIMEOUT_MS = 2_000;
@@ -76,6 +77,16 @@ function tryPing(listenPath: string): Promise<DaemonClient | null> {
   return tryPingWithTimeout(listenPath, PING_ATTEMPT_TIMEOUT_MS);
 }
 
+/** Second chance after a short pause — the daemon can be up but its event loop is busy with embedding. */
+async function tryPingWithRetryAfterBusy(listenPath: string): Promise<DaemonClient | null> {
+  const first = await tryPingWithTimeout(listenPath, PING_ATTEMPT_TIMEOUT_MS);
+  if (first) {
+    return first;
+  }
+  await sleep(500);
+  return tryPingWithTimeout(listenPath, PING_ATTEMPT_TIMEOUT_MS);
+}
+
 /**
  * `true` if this index’ IPC path already has a live indexer (ping ok).  
  * Used by `node main.js --daemon` to exit without bootstrapping a second daemon.
@@ -126,6 +137,18 @@ async function tryRemoveStaleSpawnLock(lockPath: string): Promise<void> {
   }
 }
 
+/** Also remove an empty, unreadable, or non-numeric lock file (would otherwise block all spawners forever). */
+async function tryRemoveCorruptSpawnLock(lockPath: string): Promise<void> {
+  try {
+    const raw = (await fs.readFile(lockPath, 'utf8')).trim();
+    if (raw === '' || !/^\d+$/.test(raw)) {
+      await unlinkIfExists(lockPath);
+    }
+  } catch {
+    /* missing */
+  }
+}
+
 /**
  * Ensures the indexer daemon for this index is running.
  *
@@ -140,7 +163,7 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
   await fs.mkdir(stateDir, { recursive: true });
   logInfo('mcp', `ensuring indexer daemon (socket=${listenPath})`);
 
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 120_000;
   let waitLogged = false;
   const hb = setInterval(() => {
     if (Date.now() < deadline) {
@@ -172,19 +195,22 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
           throw e;
         }
         await tryRemoveStaleSpawnLock(lockPath);
-        await sleep(50);
+        await tryRemoveCorruptSpawnLock(lockPath);
+        // Another spawner may hold the lock; the daemon can still be up — don’t only sleep.
+        const peer = await tryPingWithTimeout(listenPath, PING_ATTEMPT_TIMEOUT_MS);
+        if (peer) {
+          logInfo('mcp', 'indexer daemon ready (ping ok while spawn lock was held by peer)');
+          return peer;
+        }
+        await sleep(100 + Math.floor(Math.random() * 120));
         continue;
       }
 
       try {
-        const again = await tryPing(listenPath);
+        const again = await tryPingWithRetryAfterBusy(listenPath);
         if (again) {
           logInfo('mcp', `indexer daemon ready (peer started it while waiting for lock)`);
           return again;
-        }
-
-        if (process.platform !== 'win32') {
-          await unlinkIfExists(listenPath);
         }
 
         const entry = mainScriptPath();

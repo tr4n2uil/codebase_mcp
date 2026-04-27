@@ -40,15 +40,7 @@ async function main(): Promise<void> {
 
   const filePath = argv.length > 0 ? argv[0]! : undefined;
 
-  let config;
-  try {
-    config = loadConfig();
-  } catch (e) {
-    process.stderr.write(e instanceof Error ? `${e.message}\n` : String(e));
-    process.exit(1);
-    return;
-  }
-
+  const config = loadConfig();
   const listenPath = getDaemonListenPath(config.indexDirAbs);
   let client: DaemonClient;
   try {
@@ -62,7 +54,6 @@ async function main(): Promise<void> {
         `  npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon\n`,
     );
     process.exit(1);
-    return;
   }
 
   try {
@@ -71,7 +62,6 @@ async function main(): Promise<void> {
     if (!resp.ok) {
       process.stderr.write(`reindex failed: ${resp.error}\n`);
       process.exit(1);
-      return;
     }
     const result = resp.result as { content?: { type: string; text: string }[] };
     const first = result?.content?.[0];

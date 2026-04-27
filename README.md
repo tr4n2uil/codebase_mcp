@@ -52,6 +52,8 @@ npm run daemon
 # or: node dist/main.js --daemon
 ```
 
+With the daemon running, from another shell: `npm run reindex` (full reconcile) or `npm run reindex -- path/to/file.ts`.
+
 Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.
 
 **Logs:** stderr is mirrored to **`<CODEBASE_MCP_INDEX_DIR>/.logs/mcp.log`** (MCP / stdio process) or **`.logs/daemon.log`** (`--daemon` indexer). All lines in those files are prefixed with **`[pid=…] `** so multiple processes and restarts are easy to follow. (Default index dir: **`<repo>/.claude/codebase_mcp/db`** — add `.claude/` to `.gitignore` if you do not want the index in version control.) Use this to confirm indexing when the daemon was started detached.

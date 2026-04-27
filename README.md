@@ -1,6 +1,6 @@
 # codebase-mcp
 
-Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules, and optional **`CODEBASE_MCP_FORCE_INCLUDE`** for gitignored paths you still want indexed), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`tools/codebase-mcp/db/<repo-name>/`** (ignored in this package via `db/`), and exposes **MCP tools** for agents.
+Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules, and optional **`CODEBASE_MCP_FORCE_INCLUDE`** for gitignored paths you still want indexed), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`codebase-mcp/db/<repo-name>/`** (ignored in this package via `db/`), and exposes **MCP tools** for agents.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Local **semantic search** over a repository: watches files (with `.gitignore` + 
 ## Install & build
 
 ```bash
-cd tools/codebase-mcp
+cd codebase-mcp
 npm install
 npm run build
 ```
@@ -31,7 +31,7 @@ node dist/main.js --daemon
 
 Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.
 
-**Logs:** every process (MCP client or `--daemon`) mirrors **stderr** to **`tools/codebase-mcp/.logs/<pid>`** (plain file named by process id; directory is gitignored). Use this to confirm indexing when the daemon was started detached.
+**Logs:** every process (MCP client or `--daemon`) mirrors **stderr** to **`codebase-mcp/.logs/<pid>`** (plain file named by process id; directory is gitignored). Use this to confirm indexing when the daemon was started detached.
 
 First run downloads the embedding model (cached by Transformers.js, see `HF_HOME` / `XDG_CACHE_HOME`).
 
@@ -40,7 +40,7 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `CODEBASE_MCP_ROOT` | _(required)_ | Repo root to watch and index |
-| `CODEBASE_MCP_INDEX_DIR` | `tools/codebase-mcp/db/<basename(root)>/` | Where LanceDB + `meta.json` live (under this package). Override for custom location or to avoid basename collisions. |
+| `CODEBASE_MCP_INDEX_DIR` | `codebase-mcp/db/<basename(root)>/` | Where LanceDB + `meta.json` live (under this package). Override for custom location or to avoid basename collisions. |
 | `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | Transformers.js model id |
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | Must match the model output size |
 | `CODEBASE_MCP_CHUNK_LINES` | `60` | Lines per chunk |
@@ -77,7 +77,7 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
   "mcpServers": {
     "codebase": {
       "command": "node",
-      "args": ["/absolute/path/to/tools/codebase-mcp/dist/main.js"],
+      "args": ["/absolute/path/to/codebase-mcp/dist/main.js"],
       "env": {
         "CODEBASE_MCP_ROOT": "/absolute/path/to/your/repo",
         "CODEBASE_MCP_FORCE_INCLUDE": "path/inside/gitignored/tree"
@@ -94,7 +94,7 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
   "mcpServers": {
     "codebase": {
       "command": "node",
-      "args": ["/absolute/path/to/tools/codebase-mcp/dist/main.js"],
+      "args": ["/absolute/path/to/codebase-mcp/dist/main.js"],
       "env": {
         "CODEBASE_MCP_ROOT": "/absolute/path/to/your/repo",
         "CODEBASE_MCP_FORCE_INCLUDE": "path/inside/gitignored/tree"

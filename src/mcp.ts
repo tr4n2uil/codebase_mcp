@@ -67,7 +67,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository. Set CODEBASE_MCP_ROOT to the repo root; indexing respects .gitignore unless paths are listed in CODEBASE_MCP_FORCE_INCLUDE. Vector data defaults to tools/codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR).',
+        'Semantic search over the indexed repository. Set CODEBASE_MCP_ROOT to the repo root; indexing respects .gitignore unless paths are listed in CODEBASE_MCP_FORCE_INCLUDE. Vector data defaults to codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR).',
       inputSchema: {
         query: z.string().min(1).describe('Natural language search query'),
         limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),

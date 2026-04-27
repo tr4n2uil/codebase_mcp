@@ -123,7 +123,6 @@ Optional resources: `codebase://manifest` listing top-level indexed paths (keep 
 
 ## Related paths (when implementing)
 
-- **Workspace root:** `tools/` — standalone tooling lives here (see `tools/README.md`), **not** inside `core/lib` unless productizing inside the monolith.
 - **This package:** shipped as **`codebase_mcp/`** in the monorepo (see package `README.md` and source under `src/`).
 
 ## Next step

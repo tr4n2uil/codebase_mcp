@@ -10,7 +10,7 @@ let logFilePath = '';
 let stream: fs.WriteStream | null = null;
 
 /**
- * Append all stderr (including `console.error`) to `tools/codebase-mcp/.logs/<pid>`,
+ * Append all stderr (including `console.error`) to `codebase-mcp/.logs/<pid>`,
  * while still writing to the original stderr (MCP clients keep host-visible logs when attached).
  */
 export function initFileLogging(): string {

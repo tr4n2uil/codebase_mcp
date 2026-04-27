@@ -2,6 +2,8 @@
 
 Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules; by default **`CODEBASE_MCP_FORCE_INCLUDE`** includes **`.claude/docs`** so that tree can be indexed even if gitignored), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`** by default (override with **`CODEBASE_MCP_INDEX_DIR`**), and exposes **MCP tools** for agents.
 
+**Architecture** (diagrams, subsystems, IPC, storage): see **[`docs/architecture/README.md`](docs/architecture/README.md)**.
+
 ## Prerequisites
 
 - **Node.js 18+**
@@ -73,12 +75,16 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_USE_POLLING` | `true` | **Daemon** | Polling vs native `fs.watch` for the watcher. |
 | `CODEBASE_MCP_POLL_MS` | `2000` | **Daemon** | Polling interval. |
 | `CODEBASE_MCP_CODE_AWARE_CHUNKING` | `true` | **Daemon** | Symbol-aware chunking when indexing. |
-| `CODEBASE_MCP_RERANK` | `true` | **MCP** | Rerank vector hits lexically in `codebase_search`. |
-| `CODEBASE_MCP_RERANK_CANDIDATES` | `50` | **MCP** | Candidate pool before rerank. |
+| `CODEBASE_MCP_RERANK` | `true` | **MCP** | Rerank search hits (after hybrid) with lexical/path heuristics in `codebase_search`. |
+| `CODEBASE_MCP_RERANK_CANDIDATES` | `100` | **MCP** | Candidate pool: fetch at least this many before rerank; also used as default for hybrid depth. |
+| `CODEBASE_MCP_HYBRID` | `true` | **MCP** | **Hybrid search**: combine LanceDB **BM25** (FTS on chunk `text`) and **vector** kNN with **RRF** (Lance’s `RRFReranker`). The FTS index is built by the **indexing daemon** (or `NO_DAEMON`); pure MCP with an old DB and no index falls back to vector-only automatically. Set `0` to disable. |
+| `CODEBASE_MCP_RRF_K` | `60` | **MCP** | RRF `k` parameter (Lance `RRFReranker.create(k)`). |
+| `CODEBASE_MCP_HYBRID_DEPTH` | `max(100, RERANK_CANDIDATES)` | **MCP** | How many results to request per leg before RRF. Override for large candidate pools. |
 | `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | **MCP** | Expose `rerank_score` in search output. |
 | `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
 | `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
 | `CODEBASE_MCP_FORCE_INCLUDE` | `.claude/docs` | **Daemon** | Comma- or newline-separated **repo-relative** paths indexed even if `.gitignore` would skip them. Default alone includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra includes). **Not used for search**; set on the **daemon** env (or the single process when `CODEBASE_MCP_NO_DAEMON=1`). |
+| `CODEBASE_MCP_INDEX_EXCLUDE` | _(empty)_ | **Daemon** | Comma- or newline-separated **gitignore-style** patterns (repo-relative POSIX) to **skip indexing** without editing `.gitignore`. Overrides `CODEBASE_MCP_FORCE_INCLUDE` on matches. **Restart the daemon** after changing. Example for VCR/WebMock: `spec/vcr_cassettes/**, **/cassettes/**, **/fixtures/cassettes/**`. |
 | `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | **MCP** | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** process (no separate daemon). |
 
 Lower-CPU, less code-aware alternative (previous default):

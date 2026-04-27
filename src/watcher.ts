@@ -1,10 +1,11 @@
 import chokidar from 'chokidar';
+import type { Ignore } from 'ignore';
 import path from 'node:path';
 import { toPosixPath } from './config.js';
 import { isCoveredByForceInclude } from './force-include.js';
 import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
-import { normalizeIgnorePath } from './gitignore.js';
+import { isIgnored, normalizeIgnorePath } from './gitignore.js';
 import { logError, logInfo } from './log.js';
 
 /** Path segments under the watch root we never attach watchers to (reduces EMFILE). */
@@ -37,6 +38,8 @@ function shouldIgnoreWatchPath(
   watchRootAbs: string,
   absolutePath: string,
   forceIncludes: string[],
+  indexExclude: Ignore,
+  stats: { isDirectory: () => boolean } | undefined,
 ): boolean {
   const root = path.resolve(watchRootAbs);
   const abs = path.resolve(absolutePath);
@@ -45,6 +48,13 @@ function shouldIgnoreWatchPath(
     return false;
   }
   const relPosix = normalizeIgnorePath(toPosixPath(rel));
+  if (stats !== undefined) {
+    if (isIgnored(indexExclude, relPosix, stats.isDirectory())) {
+      return true;
+    }
+  } else if (isIgnored(indexExclude, relPosix, true) || isIgnored(indexExclude, relPosix, false)) {
+    return true;
+  }
   if (isCoveredByForceInclude(relPosix, forceIncludes)) {
     return false;
   }
@@ -56,9 +66,9 @@ function shouldIgnoreWatchPath(
   return false;
 }
 
-export function startWatcher(config: AppConfig, indexer: Indexer) {
-  const ignored = (p: string): boolean =>
-    shouldIgnoreWatchPath(config.watchRootAbs, p, config.forceIncludeRelPosix);
+export function startWatcher(config: AppConfig, indexer: Indexer, indexExclude: Ignore) {
+  const ignored = (p: string, stats?: { isDirectory: () => boolean }): boolean =>
+    shouldIgnoreWatchPath(config.watchRootAbs, p, config.forceIncludeRelPosix, indexExclude, stats);
 
   const watcher = chokidar.watch(config.watchRootAbs, {
     persistent: true,
@@ -91,7 +101,7 @@ export function startWatcher(config: AppConfig, indexer: Indexer) {
       return;
     }
     const filePath = path.resolve(rawPath);
-    if (shouldIgnoreWatchPath(config.watchRootAbs, filePath, config.forceIncludeRelPosix)) {
+    if (shouldIgnoreWatchPath(config.watchRootAbs, filePath, config.forceIncludeRelPosix, indexExclude, undefined)) {
       return;
     }
     if (event === 'unlink') {

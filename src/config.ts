@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { parseForceIncludeList } from './force-include.js';
+import { parseForceIncludeList, parseIndexExcludeList } from './force-include.js';
 
 const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-en';
 const DEFAULT_EMBEDDING_DIM = 768;
@@ -34,12 +34,26 @@ export interface AppConfig {
   pollingIntervalMs: number;
   /** Repo-relative POSIX paths that bypass .gitignore for indexing (safety rules still apply). */
   forceIncludeRelPosix: string[];
+  /**
+   * Gitignore-style patterns (repo-relative) never indexed; not written to `.gitignore`.
+   * Overrides `forceIncludeRelPosix` for matching paths. Parsed from `CODEBASE_MCP_INDEX_EXCLUDE`.
+   */
+  indexExcludeRelPosix: string[];
   /** Enable symbol-aware chunking with line-window fallback. */
   codeAwareChunking: boolean;
   /** Enable lexical/path reranking over vector-search candidates. */
   rerankEnabled: boolean;
   /** Candidate pool size for reranking. */
   rerankCandidates: number;
+  /**
+   * When true, search combines LanceDB vector kNN with BM25 full-text (FTS) and RRF.
+   * Requires an FTS index on `text` (created by the indexing daemon on `init`).
+   */
+  hybridSearch: boolean;
+  /** RRF `k` constant (default 60, common in the literature). */
+  rrfK: number;
+  /** Max results requested per channel before RRF; should be ≥ rerankCandidates for best results. */
+  hybridDepth: number;
   /** Include reranking diagnostic fields in search output. */
   rerankDebugScores: boolean;
   /** Log every indexed file path (can be noisy on large repos). */
@@ -121,10 +135,18 @@ export function loadConfig(): AppConfig {
     }
     return parseForceIncludeList(process.env.CODEBASE_MCP_FORCE_INCLUDE);
   })();
+  const indexExcludeRelPosix = parseIndexExcludeList(process.env.CODEBASE_MCP_INDEX_EXCLUDE);
   const codeAwareChunking = parseBool(process.env.CODEBASE_MCP_CODE_AWARE_CHUNKING, true);
   const rerankEnabled = parseBool(process.env.CODEBASE_MCP_RERANK, true);
   const rerankCandidates =
-    Number.parseInt(process.env.CODEBASE_MCP_RERANK_CANDIDATES || '50', 10) || 50;
+    Number.parseInt(process.env.CODEBASE_MCP_RERANK_CANDIDATES || '100', 10) || 100;
+  const hybridSearch = parseBool(process.env.CODEBASE_MCP_HYBRID, true);
+  const rrfK = Math.min(200, Math.max(1, Number.parseInt(process.env.CODEBASE_MCP_RRF_K || '60', 10) || 60));
+  const rawHybridDepth = process.env.CODEBASE_MCP_HYBRID_DEPTH?.trim() ?? '';
+  const hybridDepth =
+    rawHybridDepth === ''
+      ? Math.max(100, rerankCandidates)
+      : Math.max(1, Number.parseInt(rawHybridDepth, 10) || Math.max(100, rerankCandidates));
   const rerankDebugScores = parseBool(process.env.CODEBASE_MCP_RERANK_DEBUG_SCORES, false);
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
@@ -154,9 +176,13 @@ export function loadConfig(): AppConfig {
     usePolling,
     pollingIntervalMs,
     forceIncludeRelPosix,
+    indexExcludeRelPosix,
     codeAwareChunking,
     rerankEnabled,
     rerankCandidates,
+    hybridSearch,
+    rrfK,
+    hybridDepth,
     rerankDebugScores,
     logIndexEachFile,
     logMcpTools,

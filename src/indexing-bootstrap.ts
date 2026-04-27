@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { createRootGitignoreFilter } from './gitignore.js';
+import { createIndexExcludeFilter, createRootGitignoreFilter } from './gitignore.js';
 import { logError, logInfo } from './log.js';
 import { readMeta, writeMeta } from './meta.js';
 import { ChunkStore } from './store.js';
@@ -79,11 +79,23 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
   }
 
   const ig = createRootGitignoreFilter(config.watchRootAbs);
-  const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim);
+  const indexExclude = createIndexExcludeFilter(config.indexExcludeRelPosix);
+  if (config.indexExcludeRelPosix.length > 0) {
+    logInfo(
+      'bootstrap',
+      `index exclude: ${config.indexExcludeRelPosix.length} pattern(s) (CODEBASE_MCP_INDEX_EXCLUDE)`,
+    );
+  }
+  const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim, {
+    hybridEnabled: config.hybridSearch,
+    rrfK: config.rrfK,
+    hybridDepth: config.hybridDepth,
+  });
   await store.init();
+  await store.ensureFtsIndex();
 
   assertMeta(meta);
-  const indexer = new Indexer(config, ig, store, meta);
+  const indexer = new Indexer(config, ig, store, meta, indexExclude);
 
   void indexer
     .fullScan()
@@ -94,7 +106,7 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
       logError('bootstrap', 'initial full scan failed (daemon may exit depending on error)', e);
     });
 
-  const watcher = startWatcher(config, indexer);
+  const watcher = startWatcher(config, indexer, indexExclude);
 
   const closeWatcher = async () => {
     await watcher.close();

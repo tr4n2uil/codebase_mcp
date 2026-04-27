@@ -20,6 +20,11 @@ export function parseForceIncludeList(raw: string | undefined): string[] {
   return out;
 }
 
+/** Same parsing as `parseForceIncludeList` — for `CODEBASE_MCP_INDEX_EXCLUDE`. */
+export function parseIndexExcludeList(raw: string | undefined): string[] {
+  return parseForceIncludeList(raw);
+}
+
 /** True if `descendant` is `ancestor` or a path under `ancestor/` (POSIX, no trailing slash on either). */
 function isUnderSubtree(ancestor: string, descendant: string): boolean {
   const a = ancestor.replace(/\/+$/, '');

@@ -64,6 +64,7 @@ async function walkFiles(
   watchRootAbs: string,
   ig: Ignore,
   forceIncludes: string[],
+  indexExclude: Ignore,
 ): Promise<string[]> {
   const out: string[] = [];
   const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -74,12 +75,18 @@ async function walkFiles(
       continue;
     }
     if (entry.isDirectory()) {
+      if (isIgnored(indexExclude, rel, true)) {
+        continue;
+      }
       const dirIgnored = isIgnored(ig, `${rel}/`, true);
       if (dirIgnored && !isCoveredByForceInclude(rel, forceIncludes)) {
         continue;
       }
-      out.push(...(await walkFiles(abs, watchRootAbs, ig, forceIncludes)));
+      out.push(...(await walkFiles(abs, watchRootAbs, ig, forceIncludes, indexExclude)));
     } else {
+      if (isIgnored(indexExclude, rel, false)) {
+        continue;
+      }
       if (isIgnored(ig, rel, false) && !isCoveredByForceInclude(rel, forceIncludes)) {
         continue;
       }
@@ -115,6 +122,7 @@ export class Indexer {
     private readonly ig: Ignore,
     readonly store: ChunkStore,
     meta: MetaFile,
+    private readonly indexExclude: Ignore,
   ) {
     this.meta = meta;
   }
@@ -187,6 +195,9 @@ export class Indexer {
     await yieldToEventLoop();
     const rel = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
     if (isSafetyIgnored(rel)) {
+      return;
+    }
+    if (isIgnored(this.indexExclude, rel, false)) {
       return;
     }
     if (isIgnored(this.ig, rel, false) && !isCoveredByForceInclude(rel, this.config.forceIncludeRelPosix)) {
@@ -373,6 +384,7 @@ export class Indexer {
       this.config.watchRootAbs,
       this.ig,
       this.config.forceIncludeRelPosix,
+      this.indexExclude,
     );
     this.indexPassCount = 0;
     this.fullScanFilesCompleted = 0;
@@ -420,6 +432,7 @@ export class Indexer {
         this.config.watchRootAbs,
         this.ig,
         this.config.forceIncludeRelPosix,
+        this.indexExclude,
       ),
     );
     const rels = new Set(

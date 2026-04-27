@@ -20,7 +20,12 @@ export async function runCodebaseSearch(
   if (!qvec) {
     return { content: [{ type: 'text' as const, text: 'Failed to embed query.' }] };
   }
-  const hits = await store.search(qvec, candidateLimit, args.path_prefix);
+  const hits = await store.search({
+    queryVector: qvec,
+    queryText: args.query,
+    limit: candidateLimit,
+    pathPrefix: args.path_prefix,
+  });
   const ranked = config.rerankEnabled ? rerankSearchHits(args.query, hits) : hits;
   const body = JSON.stringify(
     {

@@ -35,3 +35,15 @@ export function isIgnored(ig: Ignore, relPosix: string, isDirectory: boolean): b
 export function normalizeIgnorePath(relPosix: string): string {
   return toPosixPath(relPosix.replace(/^\.\//, ''));
 }
+
+/** Gitignore-style patterns (repo-relative POSIX) applied only by codebase-mcp (not written to `.gitignore`). */
+export function createIndexExcludeFilter(patterns: string[]): Ignore {
+  const ig = ignore();
+  for (const raw of patterns) {
+    const t = raw.trim();
+    if (t) {
+      ig.add(t);
+    }
+  }
+  return ig;
+}

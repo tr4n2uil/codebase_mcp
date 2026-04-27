@@ -64,7 +64,11 @@ async function runMcpWithSharedDaemon(config: AppConfig): Promise<void> {
   } else {
     logInfo('mcp', `indexer daemon not running — codebase_reindex will suggest: ${DAEMON_REINDEX_HOWTO}`);
   }
-  const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim);
+  const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim, {
+    hybridEnabled: config.hybridSearch,
+    rrfK: config.rrfK,
+    hybridDepth: config.hybridDepth,
+  });
   logInfo('mcp', 'opening LanceDB read-only (connect + open table if present)…');
   await store.initReadOnly();
   logInfo('mcp', `read-only LanceDB at ${config.lanceDirAbs}`);

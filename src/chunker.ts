@@ -237,6 +237,44 @@ async function extractSymbols(lines: string[], language: string): Promise<Symbol
         symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
         continue;
       }
+      m = trimmed.match(
+        /^\s*([A-Z][A-Za-z0-9_]*)\s*=\s*(?:::)?Struct\.new(?:\s*|\s*\(|\s*#)/,
+      );
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(
+        /^\s*([A-Z][A-Za-z0-9_]*)\s*=\s*(?:::)?Data\.define(?:\s*|\s*\(|\s*#)/,
+      );
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(
+        /^\s*([A-Z][A-Za-z0-9_]*)\s*=\s*(?:::)?Class\.new(?:\s*|\s*\(|\s*#)/,
+      );
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(
+        /^\s*([A-Z][A-Za-z0-9_]*)\s*=\s*(?:::)?Module\.new(?:\s*|\s*\(|\s*#)/,
+      );
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(/^\s*enum\s+:([a-zA-Z_][\w]*)\b/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'type', startLine: lineNum });
+        continue;
+      }
+      m = trimmed.match(/^\s*enum\s+([a-zA-Z_][\w]*)\s*:/);
+      if (m) {
+        symbols.push({ name: m[1]!, kind: 'type', startLine: lineNum });
+        continue;
+      }
       m = trimmed.match(/^\s*class\s+([A-Z][A-Za-z0-9_:]*)\b/);
       if (m) {
         symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });

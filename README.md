@@ -10,7 +10,7 @@ Local **semantic search** over a repository: watches files (with `.gitignore` + 
 
 1. Install package
 ```bash
-mkdir mcp/ && cd mcp
+mkdir -p ~/.mcp/ && cd ~/.mcp
 npm install @tr4n2uil/codebase-mcp@latest
 ```
 
@@ -28,7 +28,7 @@ _Keep indexer running to ensure any codebase changes are always indexed_
 4. Configure MCP on claude code
 ```bash
 claude mcp list
-claude mcp add codebase_mcp -e CODEBASE_MCP_ROOT=/absolute/path/to/code/repo -- node /absolute/path/to/mcp/ndoe_modules/@tr4n2uil/codebase_mcp/dist/main.js
+claude mcp add codebase_mcp -e CODEBASE_MCP_ROOT=/absolute/path/to/code/repo -- node $HOME/.mcp/node_modules/@tr4n2uil/codebase_mcp/dist/main.js
 ```
 
 4. Restart Claude 

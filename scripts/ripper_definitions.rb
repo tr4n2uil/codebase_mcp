@@ -60,7 +60,7 @@ def call_chain_static?(call_sexp, base_const, method_name)
   c == base_const
 end
 
-# RHS may be :method_add_arg (with parens) or bare :call (e.g. `Class.new` without arg_paren in Ripper)
+# RHS may be :method_add_arg (parens), :call, or :command_call (e.g. `Struct.new :a` without parens)
 def struct_like_rhs?(rhs)
   if rhs.is_a?(Array) && rhs[0] == :method_add_arg
     inner = rhs[1]
@@ -69,7 +69,24 @@ def struct_like_rhs?(rhs)
   if rhs.is_a?(Array) && rhs[0] == :call
     return struct_call_chain?(rhs)
   end
+  if rhs.is_a?(Array) && rhs[0] == :command_call
+    return struct_from_command_or_callish?(rhs)
+  end
   false
+end
+
+# [:command_call, recv, period, :@ident, args] — e.g. `Struct.new :a`, `Data.define :a`
+def struct_from_command_or_callish?(cc)
+  return false unless cc.is_a?(Array) && cc[0] == :command_call
+  m = cc[3]
+  return false unless m.is_a?(Array) && m[0] == :@ident
+  meth = m[1]
+  c = const_name_node(cc[1])
+  return false unless c
+  (c == "Struct" && meth == "new") ||
+    (c == "Data" && meth == "define") ||
+    (c == "Class" && meth == "new") ||
+    (c == "Module" && meth == "new")
 end
 
 def struct_call_chain?(call_sexp)

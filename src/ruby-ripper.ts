@@ -10,7 +10,7 @@ import { hasRipperScriptOnDisk, ripperDefinitionsScriptPath } from './ripper-pat
 import { logInfo } from './log.js';
 
 /** Bump when `scripts/ripper_definitions.rb` output shape or logic changes. */
-const RIPPER_CACHE_VERSION = 1;
+const RIPPER_CACHE_VERSION = 2;
 const RIPPER_CACHE_MAX = 2_000;
 
 const ripperResultCache = new Map<string, SymbolSpan[] | 'fail'>();
@@ -148,12 +148,4 @@ export async function getRubyDefinitionSpansViaRipper(args: RubyRipperCallArgs):
       /* ignore */
     }
   }
-}
-
-export async function clearRubyRipperProbe(): Promise<void> {
-  /* test hook */
-  rubyProbe = null;
-  didLogRipperUnavailable = false;
-  didLogRipperScriptMissing = false;
-  ripperResultCache.clear();
 }

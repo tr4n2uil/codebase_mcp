@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { yieldToEventLoop } from './event-loop-yield.js';
 import type { AppConfig } from './config.js';
-import { mergeRipperWithRegex } from './declaration-merge.js';
+import { atMostOneSymbolPerLine, mergeRipperWithRegex } from './declaration-merge.js';
 import type { SymbolSpan } from './chunker-symbols.js';
 import { ripperDefinitionsScriptPath } from './ripper-path.js';
 import { getRubyDefinitionSpansViaRipper, probeRubyAvailable } from './ruby-ripper.js';
@@ -328,10 +328,10 @@ async function extractSymbols(
 ): Promise<SymbolSpan[]> {
   const regex = await extractSymbolsRegex(lines, language);
   if (language !== 'ruby' || !options || options.rubyDefEngine === 'regex') {
-    return regex;
+    return atMostOneSymbolPerLine(regex);
   }
   if (!(await probeRubyAvailable(options.rubyExecutable))) {
-    return regex;
+    return atMostOneSymbolPerLine(regex);
   }
   const contentHash = createHash('sha256').update(content, 'utf8').digest('hex');
   const ripper = await getRubyDefinitionSpansViaRipper({
@@ -342,7 +342,7 @@ async function extractSymbols(
     maxBytes: options.rubyRipperMaxBytes,
     timeoutMs: options.rubyRipperTimeoutMs,
   });
-  return mergeRipperWithRegex(ripper, regex);
+  return atMostOneSymbolPerLine(mergeRipperWithRegex(ripper, regex));
 }
 
 function sliceText(lines: string[], startLine: number, endLine: number): string {

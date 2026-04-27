@@ -13,6 +13,34 @@ export function mergeRipperWithRegex(ripper: SymbolSpan[], regex: SymbolSpan[]):
   return dedupeByLineAndName([...ripper, ...filtered]);
 }
 
+/**
+ * Code-aware chunking requires at most one “anchor” per line. If Ripper/regex list multiple
+ * declarations on the same line (e.g. `module M; class C; end; end`), keep the **last** in sort order
+ * (name/kind) so the inner struct wins over the outer.
+ */
+export function atMostOneSymbolPerLine(symbols: SymbolSpan[]): SymbolSpan[] {
+  if (symbols.length < 2) {
+    return symbols;
+  }
+  const sorted = [...symbols].sort(
+    (a, b) =>
+      a.startLine - b.startLine || a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind),
+  );
+  const out: SymbolSpan[] = [];
+  let i = 0;
+  while (i < sorted.length) {
+    const line = sorted[i]!.startLine;
+    let last = sorted[i]!;
+    while (i + 1 < sorted.length && sorted[i + 1]!.startLine === line) {
+      i += 1;
+      last = sorted[i]!;
+    }
+    out.push(last);
+    i += 1;
+  }
+  return out;
+}
+
 function dedupeByLineAndName(symbols: SymbolSpan[]): SymbolSpan[] {
   const seen = new Set<string>();
   const out: SymbolSpan[] = [];

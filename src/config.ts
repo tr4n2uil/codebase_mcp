@@ -110,6 +110,17 @@ export interface AppConfig {
    * so vectors are not steered by definition labels. Set `CODEBASE_MCP_EMBED_DEF_TAG=1` for V2 (re-embed to apply).
    */
   embedDefTagInChunk: boolean;
+  /**
+   * Ruby declaration detection: `regex` (line patterns), `ripper` (MRI Ripper subprocess; falls back to
+   * regex on failure), `auto` (Ripper when `ruby` is on PATH and `scripts/ripper_definitions.rb` exists).
+   */
+  rubyDefEngine: 'regex' | 'ripper' | 'auto';
+  /** Skip Ripper for Ruby files larger than this (bytes); use regex only. */
+  rubyRipperMaxBytes: number;
+  /** Ripper subprocess wall-clock timeout per file (ms). */
+  rubyRipperTimeoutMs: number;
+  /** Ruby executable for Ripper (default `ruby`). Override with `CODEBASE_MCP_RUBY`. */
+  rubyExecutable: string;
   /** Log every indexed file path (can be noisy on large repos). */
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
@@ -258,6 +269,16 @@ export function loadConfig(): AppConfig {
   const testPathQueryBoost = parseBool(process.env.CODEBASE_MCP_TEST_PATH_QUERY_BOOST, true);
   const frontendPathQueryBoost = parseBool(process.env.CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST, true);
   const embedDefTagInChunk = parseBool(process.env.CODEBASE_MCP_EMBED_DEF_TAG, false);
+  const rawRubyEngine = process.env.CODEBASE_MCP_RUBY_DEF_ENGINE?.trim().toLowerCase() ?? '';
+  const rubyDefEngine: 'regex' | 'ripper' | 'auto' =
+    rawRubyEngine === 'regex' || rawRubyEngine === 'ripper' || rawRubyEngine === 'auto'
+      ? (rawRubyEngine as 'regex' | 'ripper' | 'auto')
+      : 'auto';
+  const rawRubyMax = Number.parseInt(process.env.CODEBASE_MCP_RUBY_RIPPER_MAX_BYTES || '524288', 10);
+  const rubyRipperMaxBytes = Number.isFinite(rawRubyMax) && rawRubyMax >= 4096 ? rawRubyMax : 524288;
+  const rawRubyTimeout = Number.parseInt(process.env.CODEBASE_MCP_RUBY_RIPPER_TIMEOUT_MS || '10000', 10);
+  const rubyRipperTimeoutMs = Number.isFinite(rawRubyTimeout) && rawRubyTimeout >= 500 ? rawRubyTimeout : 10_000;
+  const rubyExecutable = process.env.CODEBASE_MCP_RUBY?.trim() || 'ruby';
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
@@ -307,6 +328,10 @@ export function loadConfig(): AppConfig {
     testPathQueryBoost,
     frontendPathQueryBoost,
     embedDefTagInChunk,
+    rubyDefEngine,
+    rubyRipperMaxBytes,
+    rubyRipperTimeoutMs,
+    rubyExecutable,
     logIndexEachFile,
     logMcpTools,
     ortUnlimited,

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Ignore } from 'ignore';
 import type { AppConfig } from './config.js';
-import { chunkByLines, chunkCodeAware, type TextChunk } from './chunker.js';
+import { buildChunkerOptions, chunkByLines, chunkCodeAware, type TextChunk } from './chunker.js';
 import { embedTexts, getEmbedder } from './embedder.js';
 import type { MetaFile } from './meta.js';
 import { writeMeta } from './meta.js';
@@ -278,8 +278,15 @@ export class Indexer {
     if (content.length > 300_000) {
       await yieldToEventLoop();
     }
+    const chunkerOpts = buildChunkerOptions(this.config);
     const chunks = this.config.codeAwareChunking
-      ? await chunkCodeAware(content, absPath, this.config.chunkLines, this.config.chunkOverlapLines)
+      ? await chunkCodeAware(
+          content,
+          absPath,
+          this.config.chunkLines,
+          this.config.chunkOverlapLines,
+          chunkerOpts,
+        )
       : await chunkByLines(content, this.config.chunkLines, this.config.chunkOverlapLines);
     if (content.length > 300_000) {
       await yieldToEventLoop();

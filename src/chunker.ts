@@ -1,4 +1,10 @@
+import { createHash } from 'node:crypto';
 import { yieldToEventLoop } from './event-loop-yield.js';
+import type { AppConfig } from './config.js';
+import { mergeRipperWithRegex } from './declaration-merge.js';
+import type { SymbolSpan } from './chunker-symbols.js';
+import { ripperDefinitionsScriptPath } from './ripper-path.js';
+import { getRubyDefinitionSpansViaRipper, probeRubyAvailable } from './ruby-ripper.js';
 
 export interface TextChunk {
   startLine: number;
@@ -127,10 +133,25 @@ export async function chunkByLines(
   return chunkByLinesFromLinesWithYields(lines, chunkLines, overlapLines);
 }
 
-interface SymbolSpan {
-  name: string;
-  kind: string;
-  startLine: number;
+export type { SymbolSpan } from './chunker-symbols.js';
+
+/** Indexing options for symbol detection (Ripper for Ruby, future tree-sitter for other langs). */
+export interface ChunkerOptions {
+  rubyDefEngine: 'regex' | 'ripper' | 'auto';
+  rubyRipperMaxBytes: number;
+  rubyRipperTimeoutMs: number;
+  ripperScriptPath: string;
+  rubyExecutable: string;
+}
+
+export function buildChunkerOptions(config: AppConfig): ChunkerOptions {
+  return {
+    rubyDefEngine: config.rubyDefEngine,
+    rubyRipperMaxBytes: config.rubyRipperMaxBytes,
+    rubyRipperTimeoutMs: config.rubyRipperTimeoutMs,
+    ripperScriptPath: ripperDefinitionsScriptPath(),
+    rubyExecutable: config.rubyExecutable,
+  };
 }
 
 function detectLanguage(filePath: string): string {
@@ -160,7 +181,7 @@ function detectLanguage(filePath: string): string {
   return ext;
 }
 
-async function extractSymbols(lines: string[], language: string): Promise<SymbolSpan[]> {
+async function extractSymbolsRegex(lines: string[], language: string): Promise<SymbolSpan[]> {
   const symbols: SymbolSpan[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (i > 0 && i % SYMBOLS_YIELD_EVERY === 0) {
@@ -299,6 +320,31 @@ async function extractSymbols(lines: string[], language: string): Promise<Symbol
   return symbols;
 }
 
+async function extractSymbols(
+  lines: string[],
+  language: string,
+  content: string,
+  options?: ChunkerOptions,
+): Promise<SymbolSpan[]> {
+  const regex = await extractSymbolsRegex(lines, language);
+  if (language !== 'ruby' || !options || options.rubyDefEngine === 'regex') {
+    return regex;
+  }
+  if (!(await probeRubyAvailable(options.rubyExecutable))) {
+    return regex;
+  }
+  const contentHash = createHash('sha256').update(content, 'utf8').digest('hex');
+  const ripper = await getRubyDefinitionSpansViaRipper({
+    content,
+    contentHash,
+    ruby: options.rubyExecutable,
+    scriptPath: options.ripperScriptPath,
+    maxBytes: options.rubyRipperMaxBytes,
+    timeoutMs: options.rubyRipperTimeoutMs,
+  });
+  return mergeRipperWithRegex(ripper, regex);
+}
+
 function sliceText(lines: string[], startLine: number, endLine: number): string {
   return lines.slice(startLine - 1, endLine).join('\n');
 }
@@ -337,13 +383,14 @@ export async function chunkCodeAware(
   filePath: string,
   chunkLines: number,
   overlapLines: number,
+  options?: ChunkerOptions,
 ): Promise<TextChunk[]> {
   const lines = await buildLinesArray(content);
   if (lines.length === 0) {
     return [];
   }
   const language = detectLanguage(filePath);
-  const symbols = await extractSymbols(lines, language);
+  const symbols = await extractSymbols(lines, language, content, options);
   if (symbols.length === 0) {
     const raw = await chunkByLinesFromLinesWithYields(lines, chunkLines, overlapLines);
     return raw.map((c) => ({ ...c, language }));

@@ -1,66 +1,58 @@
 # codebase-mcp
 
+_Cursor for Claude Code_
+
 Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules; by default **`CODEBASE_MCP_FORCE_INCLUDE`** includes **`.claude/docs`** so that tree can be indexed even if gitignored), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`** by default (override with **`CODEBASE_MCP_INDEX_DIR`**), and exposes **MCP tools** for agents.
 
 **Architecture** (diagrams, subsystems, IPC, storage): see **[`docs/architecture/README.md`](docs/architecture/README.md)**.
+
+# Quickstart
+
+1. Install package
+```bash
+mkdir mcp/ && cd mcp
+npm install @tr4n2uil/codebase-mcp@latest
+```
+
+2. Run indexer for your codebase
+```bash
+CODEBASE_MCP_ROOT=/absolute/path/to/code/repo npmx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
+```
+
+3. Wait for initial indexing to finish
+```
+[codebase-mcp] [bootstrap] initial full scan queue finished (indexer may still be embedding)
+```
+_Keep indexer running to ensure any codebase changes are always indexed_
+
+4. Configure MCP on claude code
+```bash
+claude mcp list
+claude mcp add codebase_mcp -e CODEBASE_MCP_ROOT=/absolute/path/to/code/repo -- node /absolute/path/to/mcp/ndoe_modules/@tr4n2uil/codebase_mcp/dist/main.js
+```
+
+4. Restart Claude 
+_And ask exploratory queries and see the magic!_
+```
+how does auth work? 
+how is logger configured?
+is there feature flag integrated?
+```
 
 ## Prerequisites
 
 - **Node.js 18+**
 - Env **`CODEBASE_MCP_ROOT`**: absolute path to the repository root to index.
 
-## Install & build
+## MCP tools
 
-```bash
-cd codebase-mcp
-npm install
-npm run build
-```
+| Tool | Description |
+|------|-------------|
+| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`); response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
+| `codebase_stats` | Chunk count, indexed file count, model, last scan time |
+| `codebase_reindex` | Optional `path` to reindex one file; omit for full **reconcile** |
 
-## Run (stdio MCP)
-
-```bash
-export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
-node dist/main.js
-```
-
-**MCP stdio (`node dist/main.js`) does not start the indexer** — it only **tries a quick connect** to an already-running daemon for `codebase_reindex`. **You start the indexer separately** (same `CODEBASE_MCP_ROOT` / `CODEBASE_MCP_INDEX_DIR` as the MCP).
-
-**Process model (default):** one **indexing daemon** per index directory (watcher + ingest + **sole writer** to LanceDB). A Unix domain socket or Windows named pipe under **`<index>/.codebase-mcp-daemon/socket`** is used for **`codebase_reindex` IPC** when the daemon is up. Each MCP process **reads LanceDB read-only** for **`codebase_search` / `codebase_stats`** and embeds queries locally.
-
-**Start the daemon (pick one):**
-
-```bash
-export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
-# Installed package (after `npm install` in this repo: `npm run build` first):
-npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
-```
-
-**Trigger reindex from the shell** (daemon must already be running; same `CODEBASE_MCP_ROOT`):
-
-```bash
-export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
-npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-reindex          # full reconcile
-npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-reindex path/to/file.ts
-```
-
-From a local clone of this repo (after `npm run build`):
-
-```bash
-export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
-npm run daemon
-# or: node dist/main.js --daemon
-```
-
-With the daemon running, from another shell: `npm run reindex` (full reconcile) or `npm run reindex -- path/to/file.ts`.
-
-Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.
-
-**Logs:** stderr is mirrored to **`<CODEBASE_MCP_INDEX_DIR>/.logs/mcp.log`** (MCP / stdio process) or **`.logs/daemon.log`** (`--daemon` indexer). All lines in those files are prefixed with **`[pid=…] `** so multiple processes and restarts are easy to follow. (Default index dir: **`<repo>/.claude/codebase_mcp/db`** — add `.claude/` to `.gitignore` if you do not want the index in version control.) Use this to confirm indexing when the daemon was started detached.
-
-First run downloads the embedding model (cached by Transformers.js, see `HF_HOME` / `XDG_CACHE_HOME`).
-
-### Optional environment
+## Configuration (optional)
 
 All variables are read from `process.env` via `loadConfig()` in **each** Node process. Use the **Applies to** column: **MCP** = the stdio `codebase-mcp` process; **Daemon** = `codebase-mcp-daemon` (watcher + indexer + IPC writer); **Both** = set to the same values in MCP and daemon when you run them separately (so paths, model, and embedding options stay consistent). Variables marked **Daemon** have **no effect on search** if you set them only in the Cursor MCP `env` block; put them in the environment where the **daemon** runs (or use **`CODEBASE_MCP_NO_DAEMON=1`** so one process does everything and one `env` block covers indexing + search).
 
@@ -86,6 +78,10 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_USE_POLLING` | `true` | **Daemon** | Polling vs native `fs.watch` for the watcher. |
 | `CODEBASE_MCP_POLL_MS` | `2000` | **Daemon** | Polling interval. |
 | `CODEBASE_MCP_CODE_AWARE_CHUNKING` | `true` | **Daemon** | Symbol-aware chunking when indexing. |
+| `CODEBASE_MCP_RUBY_DEF_ENGINE` | `auto` | **Daemon** | Ruby declarations: `auto` (MRI **Ripper** via `ruby` + `scripts/ripper_definitions.rb` when available, else regex), `ripper` (always try Ripper; fall back to regex on error), `regex` (line patterns only). **Reindex** after changes. |
+| `CODEBASE_MCP_RUBY` | `ruby` | **Daemon** | Ruby executable for Ripper (path to `ruby`). |
+| `CODEBASE_MCP_RUBY_RIPPER_MAX_BYTES` | `524288` | **Daemon** | Skip Ripper for `.rb` / `.rake` / `.rbi` sources larger than this (use regex only). |
+| `CODEBASE_MCP_RUBY_RIPPER_TIMEOUT_MS` | `10000` | **Daemon** | Wall-clock timeout per file for the Ripper subprocess. |
 | `CODEBASE_MCP_RERANK` | `true` | **MCP** | Rerank search hits (after hybrid) with lexical/path heuristics in `codebase_search`. |
 | `CODEBASE_MCP_RERANK_CANDIDATES` | `100` | **MCP** | Candidate pool: fetch at least this many before rerank; also used as default for hybrid depth. |
 | `CODEBASE_MCP_HYBRID` | `true` | **MCP** | **Hybrid search**: combine LanceDB **BM25** (FTS on chunk `text`) and **vector** kNN with **RRF** (Lance’s `RRFReranker`). The FTS index is built by the **indexing daemon** (or `NO_DAEMON`); pure MCP with an old DB and no index falls back to vector-only automatically. Set `0` to disable. |
@@ -169,14 +165,59 @@ Same as Cursor: MCP `env` is for the stdio server; put **`CODEBASE_MCP_FORCE_INC
 }
 ```
 
-## MCP tools
-
-| Tool | Description |
-|------|-------------|
-| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`); response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
-| `codebase_stats` | Chunk count, indexed file count, model, last scan time |
-| `codebase_reindex` | Optional `path` to reindex one file; omit for full **reconcile** |
-
 ## Design
 
 See `docs/local_codebase_vector_mcp_brainstorm.md` in this package. For **roadmap** (chunking, rerank, confidence), **semantic search vs grep**, and the **definition vs usage** gap, see [`docs/plan/code-aware-retrieval.md`](docs/plan/code-aware-retrieval.md).
+
+# Developers
+
+## Install & build
+
+```bash
+cd codebase-mcp
+npm install
+npm run build
+```
+
+## Run (stdio MCP)
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+node dist/main.js
+```
+
+**MCP stdio (`node dist/main.js`) does not start the indexer** — it only **tries a quick connect** to an already-running daemon for `codebase_reindex`. **You start the indexer separately** (same `CODEBASE_MCP_ROOT` / `CODEBASE_MCP_INDEX_DIR` as the MCP).
+
+**Process model (default):** one **indexing daemon** per index directory (watcher + ingest + **sole writer** to LanceDB). A Unix domain socket or Windows named pipe under **`<index>/.codebase-mcp-daemon/socket`** is used for **`codebase_reindex` IPC** when the daemon is up. Each MCP process **reads LanceDB read-only** for **`codebase_search` / `codebase_stats`** and embeds queries locally.
+
+**Start the daemon (pick one):**
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+# Installed package (after `npm install` in this repo: `npm run build` first):
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
+```
+
+**Trigger reindex from the shell** (daemon must already be running; same `CODEBASE_MCP_ROOT`):
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-reindex          # full reconcile
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-reindex path/to/file.ts
+```
+
+From a local clone of this repo (after `npm run build`):
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+npm run daemon
+# or: node dist/main.js --daemon
+```
+
+With the daemon running, from another shell: `npm run reindex` (full reconcile) or `npm run reindex -- path/to/file.ts`.
+
+Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.
+
+**Logs:** stderr is mirrored to **`<CODEBASE_MCP_INDEX_DIR>/.logs/mcp.log`** (MCP / stdio process) or **`.logs/daemon.log`** (`--daemon` indexer). All lines in those files are prefixed with **`[pid=…] `** so multiple processes and restarts are easy to follow. (Default index dir: **`<repo>/.claude/codebase_mcp/db`** — add `.claude/` to `.gitignore` if you do not want the index in version control.) Use this to confirm indexing when the daemon was started detached.
+
+First run downloads the embedding model (cached by Transformers.js, see `HF_HOME` / `XDG_CACHE_HOME`).

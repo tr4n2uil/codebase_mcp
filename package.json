@@ -1,7 +1,7 @@
 {
   "name": "@tr4n2uil/codebase-mcp",
   "version": "1.0.46",
-  "description": "Local vector index + MCP server for codebase semantic search (TypeScript, Xenova transformers, LanceDB)",
+  "description": "Cursor for Claude Code: Local vector index + MCP server for codebase semantic search (TypeScript, Xenova transformers, LanceDB)",
   "type": "module",
   "main": "dist/main.js",
   "bin": {
@@ -11,7 +11,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "scripts/ripper_definitions.rb"
   ],
   "scripts": {
     "build": "tsc",

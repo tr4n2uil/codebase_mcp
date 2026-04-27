@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './ort-env-early.js';
 import type { AppConfig } from './config.js';
 import { loadConfig } from './config.js';
 import { initFileLogging, registerFatalProcessLogging, type FileLogKind } from './logger.js';

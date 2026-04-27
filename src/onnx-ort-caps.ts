@@ -1,8 +1,9 @@
-import { env as transformersEnv } from '@xenova/transformers';
+import { createRequire } from 'node:module';
 import type { InferenceSession } from 'onnxruntime-common';
-import * as ORT from 'onnxruntime-node';
 import type { AppConfig } from './config.js';
 import { logInfo } from './log.js';
+
+const require = createRequire(import.meta.url);
 
 type CreateFn = typeof InferenceSession.create;
 
@@ -10,9 +11,9 @@ let patched = false;
 
 /**
  * @xenova/transformers only passes `executionProviders` to `InferenceSession.create`, so ONNX
- * Runtime defaults to many intra-op threads → 300–500% CPU in Activity Monitor. We wrap `create`
- * once to set intra/inter threads and (by default) sequential execution so the host is less
- * likely to throttle or kill the daemon.
+ * Runtime defaults to many intra-op threads → high CPU. We wrap `create` once to cap threads.
+ * Must run after `ort-env-early.ts` and before any `@xenova/transformers` import that loads ORT.
+ * Uses `createRequire` so the native ORT binding loads only here (after env is set).
  */
 export function applyOrtSessionCpuCaps(config: AppConfig): void {
   if (patched || config.ortUnlimited) {
@@ -22,7 +23,7 @@ export function applyOrtSessionCpuCaps(config: AppConfig): void {
     return;
   }
 
-  const { ortIntraOpThreads, ortInterOpThreads, ortSequential, ortWasmNumThreads } = config;
+  const { ortIntraOpThreads, ortInterOpThreads, ortSequential } = config;
   if (!process.env.OMP_NUM_THREADS) {
     process.env.OMP_NUM_THREADS = String(Math.max(1, ortIntraOpThreads));
   }
@@ -32,8 +33,15 @@ export function applyOrtSessionCpuCaps(config: AppConfig): void {
   if (!process.env.MKL_NUM_THREADS) {
     process.env.MKL_NUM_THREADS = String(Math.max(1, ortIntraOpThreads));
   }
+  if (!process.env.OPENBLAS_NUM_THREADS) {
+    process.env.OPENBLAS_NUM_THREADS = String(Math.max(1, ortIntraOpThreads));
+  }
 
-  const IS = ORT.InferenceSession;
+  // Same resolution as @xenova (backends/onnx.js): `ONNX = ONNX_NODE.default ?? ONNX_NODE`
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ORT: typeof import('onnxruntime-node') = require('onnxruntime-node');
+  const ortMod = (ORT as { default?: typeof ORT } & typeof ORT).default ?? ORT;
+  const IS = ortMod.InferenceSession;
   if (!IS?.create) {
     return;
   }
@@ -76,12 +84,6 @@ export function applyOrtSessionCpuCaps(config: AppConfig): void {
     }
     return orig(a0 as never, a1 as never, a2 as never, a3 as never);
   }) as CreateFn;
-
-  const w = (transformersEnv as { backends?: { onnx?: { wasm?: { numThreads?: number } } } }).backends
-    ?.onnx?.wasm;
-  if (w && typeof w === 'object' && 'numThreads' in w) {
-    w.numThreads = Math.max(1, Math.min(32, ortWasmNumThreads));
-  }
 
   (IS as { __mcpOrtPatched?: boolean }).__mcpOrtPatched = true;
   patched = true;

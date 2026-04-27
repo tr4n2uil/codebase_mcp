@@ -1,4 +1,4 @@
-import { pipeline } from '@xenova/transformers';
+import './ort-env-early.js';
 import type { AppConfig } from './config.js';
 import { logError, logInfo } from './log.js';
 import { applyOrtSessionCpuCaps } from './onnx-ort-caps.js';
@@ -10,9 +10,17 @@ let extractorPromise: Promise<FeatureExtractor> | null = null;
 export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
   if (!extractorPromise) {
     applyOrtSessionCpuCaps(config);
-    logInfo('embedder', `loading ${config.embeddingModel} (first use; may download/cache)…`);
-    extractorPromise = pipeline('feature-extraction', config.embeddingModel)
-      .then(async (p) => {
+    extractorPromise = (async () => {
+      // Dynamic import: ORT is patched in applyOrtSessionCpuCaps (before native + xenova see ORT).
+      const { pipeline, env } = await import('@xenova/transformers');
+      const w = (env as { backends?: { onnx?: { wasm?: { numThreads?: number } } } }).backends?.onnx
+        ?.wasm;
+      if (w && typeof w === 'object' && 'numThreads' in w) {
+        w.numThreads = Math.max(1, Math.min(32, config.ortWasmNumThreads));
+      }
+      logInfo('embedder', `loading ${config.embeddingModel} (first use; may download/cache)…`);
+      try {
+        const p = await pipeline('feature-extraction', config.embeddingModel);
         const ex = p as FeatureExtractor;
         // First real run compiles/optimizes the ONNX graph; without this, the pause happens on the first indexer batch and looks "stuck".
         logInfo(
@@ -27,12 +35,12 @@ export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
         );
         logInfo('embedder', `ready: ${config.embeddingModel}`);
         return ex;
-      })
-      .catch((e) => {
+      } catch (e) {
         logError('embedder', `failed to load ${config.embeddingModel}`, e);
         extractorPromise = null;
         throw e;
-      });
+      }
+    })();
   }
   return extractorPromise;
 }

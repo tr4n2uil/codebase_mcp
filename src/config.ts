@@ -75,6 +75,14 @@ export interface AppConfig {
   searchMatchStrongAbove: number;
   /** Min relative (top−2nd)/|top| to treat top as clearly separated. */
   searchMatchMinGap: number;
+  /**
+   * When true and the query looks like a definition request (“where is X defined?”), boost chunks
+   * whose `definition_of` metadata matches. Requires code-aware reindex. Disable with
+   * `CODEBASE_MCP_DEF_BOOST=0`.
+   */
+  definitionBoostEnabled: boolean;
+  /** Additive path prior in rerank when `definition_of` matches parsed symbol (0–0.5). */
+  definitionBoost: number;
   /** Log every indexed file path (can be noisy on large repos). */
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
@@ -200,6 +208,18 @@ export function loadConfig(): AppConfig {
   if (searchMatchStrongAbove <= searchMatchWeakBelow) {
     searchMatchStrongAbove = searchMatchWeakBelow + 0.01;
   }
+  const definitionBoostEnabled = parseBool(process.env.CODEBASE_MCP_DEF_BOOST, true);
+  const rawDefStr = process.env.CODEBASE_MCP_DEF_STRENGTH?.trim() ?? '';
+  const definitionBoost = (() => {
+    if (rawDefStr === '') {
+      return 0.18;
+    }
+    const n = Number.parseFloat(rawDefStr);
+    if (!Number.isFinite(n) || n < 0) {
+      return 0;
+    }
+    return Math.min(0.5, n);
+  })();
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
@@ -242,6 +262,8 @@ export function loadConfig(): AppConfig {
     searchMatchWeakBelow,
     searchMatchStrongAbove,
     searchMatchMinGap,
+    definitionBoostEnabled,
+    definitionBoost,
     logIndexEachFile,
     logMcpTools,
     ortUnlimited,

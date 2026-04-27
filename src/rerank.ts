@@ -5,6 +5,16 @@ export interface RerankedHit extends SearchHit {
   rerank_score: number;
 }
 
+export interface RerankDefinitionOptions {
+  /** Identifier from e.g. `parseDefinitionIntentQuery` — must match chunk `definition_of` (case-insensitive). */
+  definitionTarget?: string;
+  /**
+   * Extra path prior (additive) for chunks that declare this symbol. Set to `0` to disable.
+   * Typical: ~0.12–0.22; capped implicitly by the rerank mix.
+   */
+  definitionBoost: number;
+}
+
 function tokenize(query: string): string[] {
   return (query.match(/[A-Za-z0-9_.$/-]+/g) ?? [])
     .map((t) => t.toLowerCase())
@@ -140,7 +150,10 @@ export function rerankSearchHits(
   query: string,
   hits: SearchHit[],
   pathDemote: Pick<AppConfig, 'rerankDemotePathSubstrings' | 'rerankDemotePerMatch'>,
+  definition?: RerankDefinitionOptions,
 ): RerankedHit[] {
+  const defTarget = definition?.definitionTarget;
+  const defBoost = definition?.definitionBoost ?? 0;
   const queryTokens = tokenize(query);
   const symbolTokens = symbolLikeTokens(query, queryTokens);
   const symbolIntent = isSymbolIntentQuery(query, queryTokens);
@@ -151,9 +164,16 @@ export function rerankSearchHits(
       const exactPath = scoreExactWordMatch(queryTokens, hit.path);
       const pathHint = scorePathHint(queryTokens, hit.path);
       const symbolBonus = scoreSymbolBonus(symbolTokens, hit);
+      const defPrior =
+        defTarget && defBoost > 0 && hit.definition_of
+          ? hit.definition_of.toLowerCase() === defTarget.toLowerCase()
+            ? defBoost
+            : 0
+          : 0;
       const pathPrior =
         codePathPrior(hit.path, symbolIntent) +
-        userPathDemote(hit.path, pathDemote.rerankDemotePathSubstrings, pathDemote.rerankDemotePerMatch);
+        userPathDemote(hit.path, pathDemote.rerankDemotePathSubstrings, pathDemote.rerankDemotePerMatch) +
+        defPrior;
       const rerankScore = symbolIntent
         ? hit.score * 0.35 + lexical * 0.2 + exact * 0.2 + exactPath * 0.15 + symbolBonus * 0.15 + pathPrior
         : hit.score * 0.5 + lexical * 0.2 + exact * 0.1 + pathHint * 0.1 + symbolBonus * 0.05 + pathPrior;

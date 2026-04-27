@@ -4,8 +4,11 @@ import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
 import { readMeta } from './meta.js';
 import type { ChunkStore } from './store.js';
+import { orderHitsByDefinitionBoost, parseDefinitionIntentQuery } from './definition-intent.js';
 import { rerankSearchHits } from './rerank.js';
+import type { RerankedHit } from './rerank.js';
 import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
+import type { SearchHit } from './store.js';
 
 export type McpTextContent = { type: 'text'; text: string };
 
@@ -27,12 +30,25 @@ export async function runCodebaseSearch(
     limit: candidateLimit,
     pathPrefix: args.path_prefix,
   });
-  const ranked = config.rerankEnabled
-    ? rerankSearchHits(args.query, hits, {
+  const defTarget =
+    config.definitionBoostEnabled && config.definitionBoost > 0
+      ? parseDefinitionIntentQuery(args.query)
+      : undefined;
+  const defBoost = defTarget ? config.definitionBoost : 0;
+  let ranked: RerankedHit[] | SearchHit[] = hits;
+  if (config.rerankEnabled) {
+    ranked = rerankSearchHits(
+      args.query,
+      hits,
+      {
         rerankDemotePathSubstrings: config.rerankDemotePathSubstrings,
         rerankDemotePerMatch: config.rerankDemotePerMatch,
-      })
-    : hits;
+      },
+      { definitionTarget: defTarget, definitionBoost: defBoost },
+    );
+  } else if (defTarget) {
+    ranked = orderHitsByDefinitionBoost(hits, defTarget, defBoost);
+  }
   const topHits = ranked.slice(0, lim);
   const assessment = config.searchMatchConfidence
     ? assessSearchMatchQuality(topHits, {
@@ -49,6 +65,7 @@ export async function runCodebaseSearch(
         start_line: h.start_line,
         end_line: h.end_line,
         score: h.score,
+        ...(h.definition_of ? { definition_of: h.definition_of } : {}),
         ...(config.rerankDebugScores && 'rerank_score' in h ? { rerank_score: h.rerank_score } : {}),
         snippet: h.text.length > 4000 ? `${h.text.slice(0, 4000)}…` : h.text,
       })),

@@ -56,6 +56,9 @@ function embeddingTextForChunk(relPath: string, chunk: TextChunk): string {
   if (chunk.symbolKind) {
     tags.push(`kind=${chunk.symbolKind}`);
   }
+  if (chunk.definitionOf) {
+    tags.push(`def=${chunk.definitionOf}`);
+  }
   return `[${tags.join('][')}]\n${chunk.text}`;
 }
 
@@ -341,6 +344,7 @@ export class Indexer {
       end_line: c.endLine,
       text: c.text,
       vector: vectors[i]!,
+      definition_of: c.definitionOf ?? '',
     }));
     await this.store.addRows(rows);
     this.meta.fileHashes[rel] = hash;

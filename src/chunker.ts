@@ -7,6 +7,11 @@ export interface TextChunk {
   language?: string;
   symbolName?: string;
   symbolKind?: string;
+  /**
+   * When set, the chunk *starts* at a detected declaration line for this symbol (heuristic, code-aware
+   * chunking only). Used at search time to boost “where is X defined?” queries vs usages in the same file.
+   */
+  definitionOf?: string;
 }
 
 /** Use fast path below this; above, scan for newlines in chunks and yield to keep IPC alive. */
@@ -238,6 +243,7 @@ async function splitLargeSymbolChunk(
       text: sliceText(lines, cursor, chunkEnd),
       symbolName: symbol.name,
       symbolKind: symbol.kind,
+      ...(cursor === symbol.startLine ? { definitionOf: symbol.name } : {}),
     });
     cursor = chunkEnd + 1;
   }
@@ -292,6 +298,7 @@ export async function chunkCodeAware(
               text: sliceText(lines, startLine, endLine),
               symbolName: current.name,
               symbolKind: current.kind,
+              definitionOf: current.name,
             } as TextChunk,
           ];
     for (const c of symbolChunks) {

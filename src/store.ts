@@ -11,6 +11,8 @@ export interface ChunkRow {
   end_line: number;
   text: string;
   vector: Float32Array;
+  /** Heuristic: chunk starts at a declaration of this symbol (code-aware indexing). Empty = none. */
+  definition_of: string;
 }
 
 export interface SearchHit {
@@ -19,6 +21,8 @@ export interface SearchHit {
   end_line: number;
   text: string;
   score: number;
+  /** Heuristic: declared symbol at the start of this chunk (if indexed with code-aware chunking). */
+  definition_of?: string;
 }
 
 export interface ChunkStoreSearchOptions {
@@ -39,6 +43,15 @@ function pathPrefixSqlFilter(prefix: string): string {
 
 function hasFtsOnText(indices: { columns: string[] }[]): boolean {
   return indices.some((c) => c.columns[0] === 'text' || c.columns.includes('text'));
+}
+
+function definitionOfFromRow(r: Record<string, unknown>): string | undefined {
+  const v = r.definition_of;
+  if (v == null) {
+    return undefined;
+  }
+  const s = String(v).trim();
+  return s.length > 0 ? s : undefined;
 }
 
 function hitScoreFromRow(row: Record<string, unknown>): number {
@@ -81,11 +94,12 @@ export class ChunkStore {
   async init(): Promise<void> {
     await fs.mkdir(this.lanceDirAbs, { recursive: true });
     this.conn = await connect(this.lanceDirAbs);
+    this.canCreateIndices = true;
     const names = await this.conn.tableNames();
     if (names.includes(TABLE)) {
       this.table = await this.conn.openTable(TABLE);
+      await this.ensureDefinitionOfColumn();
     }
-    this.canCreateIndices = true;
   }
 
   /**
@@ -111,6 +125,20 @@ export class ChunkStore {
       throw new Error('Chunk table not initialized');
     }
     return this.table;
+  }
+
+  /** Add `definition_of` to existing tables from before this column existed (indexer / writer `init` only). */
+  private async ensureDefinitionOfColumn(): Promise<void> {
+    if (!this.table) {
+      return;
+    }
+    const table = this.requireTable();
+    const schema = await table.schema();
+    const names = schema.fields.map((f) => f.name);
+    if (names.includes('definition_of')) {
+      return;
+    }
+    await table.addColumns([{ name: 'definition_of', valueSql: "''" }]);
   }
 
   /**
@@ -151,6 +179,7 @@ export class ChunkStore {
       end_line: r.end_line,
       text: r.text,
       vector: Array.from(r.vector),
+      definition_of: r.definition_of ?? '',
     }));
     this.table = await this.conn.createTable(TABLE, data);
     if (this.canCreateIndices) {
@@ -172,6 +201,7 @@ export class ChunkStore {
       end_line: r.end_line,
       text: r.text,
       vector: Array.from(r.vector),
+      definition_of: r.definition_of ?? '',
     }));
     await this.requireTable().add(data);
     if (this.canCreateIndices) {
@@ -208,12 +238,14 @@ export class ChunkStore {
     for (const row of rows) {
       const r = row as Record<string, unknown>;
       const distance = (r._distance as number) ?? (r.distance as number) ?? 0;
+      const def = definitionOfFromRow(r);
       hits.push({
         path: String(r.path),
         start_line: Number(r.start_line),
         end_line: Number(r.end_line),
         text: String(r.text),
         score: typeof distance === 'number' ? 1 / (1 + distance) : 0,
+        ...(def ? { definition_of: def } : {}),
       });
     }
     let filtered = hits;
@@ -247,13 +279,17 @@ export class ChunkStore {
       .limit(baseDepth)
       .rerank(rrfReranker);
     const rows = (await q.toArray()) as Record<string, unknown>[];
-    const hits: SearchHit[] = rows.map((r) => ({
-      path: String(r.path),
-      start_line: Number(r.start_line),
-      end_line: Number(r.end_line),
-      text: String(r.text),
-      score: hitScoreFromRow(r),
-    }));
+    const hits: SearchHit[] = rows.map((r) => {
+      const def = definitionOfFromRow(r);
+      return {
+        path: String(r.path),
+        start_line: Number(r.start_line),
+        end_line: Number(r.end_line),
+        text: String(r.text),
+        score: hitScoreFromRow(r),
+        ...(def ? { definition_of: def } : {}),
+      };
+    });
     if (args.pathPrefix && args.pathPrefix.length > 0) {
       const prefix = args.pathPrefix.replace(/\/+$/, '');
       return hits

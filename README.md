@@ -36,6 +36,14 @@ export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
 npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
 ```
 
+**Trigger reindex from the shell** (daemon must already be running; same `CODEBASE_MCP_ROOT`):
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-reindex          # full reconcile
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-reindex path/to/file.ts
+```
+
 From a local clone of this repo (after `npm run build`):
 
 ```bash
@@ -87,6 +95,8 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_MATCH_CONF_WEAK` | `0.35` if `CODEBASE_MCP_RERANK` is on, else `0.18` | **MCP** | Primary score (rerank or retriever) below this → `low` confidence. |
 | `CODEBASE_MCP_MATCH_CONF_STRONG` | `0.55` (rerank on) or `0.4` (off) | **MCP** | Primary score at/above this can contribute to `high` (with enough top-1 vs top-2 gap). If ≤ weak, strong is raised to weak + 0.01. |
 | `CODEBASE_MCP_MATCH_CONF_GAP` | `0.05` (rerank on) or `0.06` (off) | **MCP** | Minimum relative (top1−top2)/|top1| to treat the leader as “clear” for `high`. |
+| `CODEBASE_MCP_DEF_BOOST` | `true` | **MCP** | When true, “definition-intent” queries (e.g. *where is `Foo` defined?*) boost chunks that **declare** that symbol (heuristic, code-aware indexing). Set `0` to disable. |
+| `CODEBASE_MCP_DEF_STRENGTH` | `0.18` | **MCP** | Additive rerank “path prior” for matching `definition_of` (clamped 0–0.5; `0` = no extra boost). |
 | `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
 | `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
 | `CODEBASE_MCP_FORCE_INCLUDE` | `.claude/docs` | **Daemon** | Comma- or newline-separated **repo-relative** paths indexed even if `.gitignore` would skip them. Default alone includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra includes). **Not used for search**; set on the **daemon** env (or the single process when `CODEBASE_MCP_NO_DAEMON=1`). |
@@ -101,6 +111,8 @@ export CODEBASE_MCP_EMBEDDING_DIM=384
 ```
 
 When changing embedding model/dimension or code-aware chunking behavior, use a fresh `CODEBASE_MCP_INDEX_DIR` (or reindex) to avoid mixing old and new vector/chunk layouts.
+
+**Definition boost:** after upgrading, run the **indexer/daemon** at least once (or `codebase_reindex`) so LanceDB gets the `definition_of` column (auto-added on writer `init`) and files are re-embedded with definition metadata. Until then, search still works; “where is X defined?” boosting has no effect.
 
 Large repos: native recursive watching can hit **EMFILE: too many open files**; polling is the default. You can also raise the process limit (e.g. `ulimit -n 10240`).
 
@@ -160,4 +172,4 @@ Same as Cursor: MCP `env` is for the stdio server; put **`CODEBASE_MCP_FORCE_INC
 
 ## Design
 
-See `docs/local_codebase_vector_mcp_brainstorm.md` in this package.
+See `docs/local_codebase_vector_mcp_brainstorm.md` in this package. For **roadmap** (chunking, rerank, confidence), **semantic search vs grep**, and the **definition vs usage** gap, see [`docs/plan/code-aware-retrieval.md`](docs/plan/code-aware-retrieval.md).

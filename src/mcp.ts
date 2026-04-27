@@ -99,7 +99,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to <repo>/.claude/codebase_mcp/db (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB. JSON includes heuristic match quality fields: match_confidence (high|medium|low), match_confidence_reasons, match_confidence_hint, top_primary_score, top_relative_separation (omit with CODEBASE_MCP_MATCH_CONFIDENCE=0).',
+        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to <repo>/.claude/codebase_mcp/db (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB. JSON includes heuristic match quality fields: match_confidence (high|medium|low), match_confidence_reasons, match_confidence_hint, top_primary_score, top_relative_separation (omit with CODEBASE_MCP_MATCH_CONFIDENCE=0). Chunks may include definition_of when indexed with code-aware chunking (boosts “where is X defined?” style queries; see CODEBASE_MCP_DEF_BOOST).',
       inputSchema: {
         query: z.string().min(1).describe('Natural language search query'),
         limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),

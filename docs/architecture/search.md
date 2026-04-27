@@ -25,6 +25,7 @@ flowchart TD
   M --> O
 ```
 
+- **Definition boost (optional)** — At index time, code-aware chunks that **start** at a detected declaration get `definition_of` in LanceDB. `definition-intent.ts` parses “where is *X* defined?”-style queries; the reranker (or a sort when rerank is off) adds an extra path prior when `definition_of` matches. Tunable with `CODEBASE_MCP_DEF_BOOST` / `CODEBASE_MCP_DEF_STRENGTH`. **Reindex** after upgrading so the column exists and is filled; not a replacement for *Find references*.
 - **Match confidence (optional)** — `search-confidence.ts` scores the **same** top-`limit` list returned to the client: `match_confidence`, reasons, a short `match_confidence_hint`, `top_primary_score` (uses `rerank_score` when rerank is on), and `top_relative_separation`. Tunable with `CODEBASE_MCP_MATCH_CONFIDENCE` / `CODEBASE_MCP_MATCH_CONF_*` (see README). This is a **heuristic**; scores are not globally calibrated.
 - **Candidate pool size** — `mcp-tools.ts` fetches at least `max(limit, CODEBASE_MCP_RERANK_CANDIDATES)` before rerank (see README defaults).
 - **Hybrid (default on)** — When `CODEBASE_MCP_HYBRID` is true, an FTS index exists on `text`, and the query string is non-empty, `ChunkStore` runs **vector + full-text** search with **Lance’s `RRFReranker`** (RRF). If hybrid fails or the FTS index is missing (e.g. pure read-only MCP never ran a writer), the store **falls back to vector-only** (no user-visible error).
@@ -50,4 +51,5 @@ flowchart TD
 - `store.ts` — `search({ queryVector, queryText, limit, pathPrefix })`
 - `rerank.ts` — `rerankSearchHits`
 - `search-confidence.ts` — `assessSearchMatchQuality` (MCP output fields)
+- `definition-intent.ts` — `parseDefinitionIntentQuery`, `orderHitsByDefinitionBoost`
 - `embedder.ts` — `getEmbedder`, `embedTexts`

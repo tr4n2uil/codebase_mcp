@@ -5,7 +5,7 @@ import { isIndexerDaemonAlreadyRunning } from './ensure-daemon.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
 import { daemonStateDir, getDaemonListenPath } from './daemon-paths.js';
 import { startDaemonIpcServer } from './daemon-server.js';
-import { logInfo } from './log.js';
+import { logError, logInfo } from './log.js';
 
 async function unlinkIfExists(p: string): Promise<void> {
   try {
@@ -34,33 +34,40 @@ export async function runIndexingDaemon(configIn?: AppConfig): Promise<void> {
     process.exit(0);
   }
 
-  const { indexer, closeWatcher } = await bootstrapIndexing(config);
-
-  let reconcileRunning = false;
-  setInterval(() => {
-    if (reconcileRunning) {
-      return;
-    }
-    reconcileRunning = true;
-    void indexer
-      .reconcile()
-      .catch((error) => {
-        console.error('[codebase-mcp] reconcile error:', error);
-      })
-      .finally(() => {
-        reconcileRunning = false;
-      });
-  }, config.reconcileIntervalMs);
-
   if (process.platform !== 'win32') {
     await unlinkIfExists(listenPath);
   }
 
-  const ipcServer: net.Server = await startDaemonIpcServer(config, indexer, listenPath);
-  logInfo('daemon', `IPC listening on ${listenPath} (commands: ping, reindex)`);
+  const indexingPromise = bootstrapIndexing(config);
+  void indexingPromise.catch((e) => {
+    logError('daemon', 'indexing bootstrap failed; exiting (IPC may have been listening briefly)', e);
+    process.exit(1);
+  });
+
+  let reconcileRunning = false;
+  void indexingPromise.then(({ indexer }) => {
+    setInterval(() => {
+      if (reconcileRunning) {
+        return;
+      }
+      reconcileRunning = true;
+      void indexer
+        .reconcile()
+        .catch((error) => {
+          console.error('[codebase-mcp] reconcile error:', error);
+        })
+        .finally(() => {
+          reconcileRunning = false;
+        });
+    }, config.reconcileIntervalMs);
+  });
+
+  const ipcServer: net.Server = await startDaemonIpcServer(config, indexingPromise, listenPath);
+  logInfo('daemon', `IPC listening on ${listenPath} (commands: ping, reindex; reindex waits until bootstrap finishes)`);
   logInfo('daemon', 'search/stats are served by each MCP process via read-only LanceDB; this process only indexes');
 
   const shutdown = async () => {
+    const { closeWatcher } = await indexingPromise;
     await new Promise<void>((resolve) => {
       ipcServer.close(() => resolve());
     });

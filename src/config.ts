@@ -4,6 +4,7 @@ import { parseForceIncludeList } from './force-include.js';
 
 const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-en';
 const DEFAULT_EMBEDDING_DIM = 768;
+const DEFAULT_EMBED_INFER_LOG_MS = 20_000;
 
 /** Directory containing this module (`dist/` when compiled). */
 function packageRootDir(): string {
@@ -30,6 +31,10 @@ export interface AppConfig {
   embeddingDim: number;
   /** Chunks per embedding call (1–32). Smaller = more progress logs, less RAM per op; CPU can still be slow. */
   embedBatchSize: number;
+  /**
+   * Log a “still in inference” line at this interval (ms) during ONNX work. Default 20_000. Set `0` to disable.
+   */
+  embedInferenceLogMs: number;
   chunkLines: number;
   chunkOverlapLines: number;
   maxFileBytes: number;
@@ -84,6 +89,20 @@ export function loadConfig(): AppConfig {
   const embeddingDim = Number.parseInt(process.env.CODEBASE_MCP_EMBEDDING_DIM || '', 10);
   const rawBatch = Number.parseInt(process.env.CODEBASE_MCP_EMBED_BATCH_SIZE || '4', 10);
   const embedBatchSize = Math.min(32, Math.max(1, Number.isFinite(rawBatch) ? rawBatch : 4));
+  const rawInferLog = process.env.CODEBASE_MCP_EMBED_INFER_LOG_MS;
+  const embedInferenceLogMs = (() => {
+    if (rawInferLog === undefined || rawInferLog.trim() === '') {
+      return DEFAULT_EMBED_INFER_LOG_MS;
+    }
+    const n = Number.parseInt(rawInferLog.trim(), 10);
+    if (!Number.isFinite(n) || n < 0) {
+      return DEFAULT_EMBED_INFER_LOG_MS;
+    }
+    if (n === 0) {
+      return 0;
+    }
+    return n;
+  })();
   const pollingEnv = process.env.CODEBASE_MCP_USE_POLLING?.trim().toLowerCase();
   const usePolling =
     pollingEnv === undefined || pollingEnv === ''
@@ -107,6 +126,7 @@ export function loadConfig(): AppConfig {
     embeddingModel,
     embeddingDim: Number.isFinite(embeddingDim) ? embeddingDim : DEFAULT_EMBEDDING_DIM,
     embedBatchSize,
+    embedInferenceLogMs,
     chunkLines: Number.parseInt(process.env.CODEBASE_MCP_CHUNK_LINES || '60', 10) || 60,
     chunkOverlapLines: Number.parseInt(process.env.CODEBASE_MCP_CHUNK_OVERLAP || '12', 10) || 12,
     maxFileBytes: Number.parseInt(process.env.CODEBASE_MCP_MAX_FILE_BYTES || `${5 * 1024 * 1024}`, 10) || 5 * 1024 * 1024,

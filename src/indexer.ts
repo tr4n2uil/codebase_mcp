@@ -301,7 +301,12 @@ export class Indexer {
           `embedding ${rel}${this.fullScanFileProgress(source)}: batch ${batchNum}/${totalBatches}`,
         );
       }
-      const part = await embedTexts(extractor, batch, this.config.embeddingDim);
+      const part = await embedTexts(
+        extractor,
+        batch,
+        this.config.embeddingDim,
+        this.config.embedInferenceLogMs,
+      );
       vectors.push(...part);
     }
     if (vectors.length !== chunks.length) {

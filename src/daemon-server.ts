@@ -2,7 +2,7 @@ import net from 'node:net';
 import readline from 'node:readline';
 import * as z from 'zod/v4';
 import type { AppConfig } from './config.js';
-import type { Indexer } from './indexer.js';
+import type { IndexingHandles } from './indexing-bootstrap.js';
 import type { IpcRequest, IpcResponse } from './ipc-protocol.js';
 import { encodeMessage, parseLine } from './ipc-protocol.js';
 import { logError, logInfo } from './log.js';
@@ -12,12 +12,13 @@ const reindexPayloadSchema = z.object({
   path: z.string().optional(),
 });
 
-async function dispatch(req: IpcRequest, config: AppConfig, indexer: Indexer): Promise<IpcResponse> {
+async function dispatch(req: IpcRequest, indexing: Promise<IndexingHandles>): Promise<IpcResponse> {
   const id = req.id;
   switch (req.cmd) {
     case 'ping':
       return { id, ok: true, result: { ok: true } };
     case 'reindex': {
+      const { config, indexer } = await indexing;
       const parsed = reindexPayloadSchema.safeParse(req.payload ?? {});
       if (!parsed.success) {
         return { id, ok: false, error: parsed.error.message };
@@ -36,9 +37,15 @@ async function dispatch(req: IpcRequest, config: AppConfig, indexer: Indexer): P
   }
 }
 
+/**
+ * Binds the Unix socket and accepts connections **as soon as listen() completes**, while
+ * `indexing` may still be in progress. `ping` is answered immediately; `reindex` awaits bootstrap.
+ * This allows MCP stdio clients to get past `ensureDaemonClient` even when LanceDB init or
+ * other bootstrap work is slow.
+ */
 export function startDaemonIpcServer(
-  config: AppConfig,
-  indexer: Indexer,
+  _config: AppConfig,
+  indexing: Promise<IndexingHandles>,
   listenPath: string,
 ): Promise<net.Server> {
   return new Promise((resolve, reject) => {
@@ -60,7 +67,7 @@ export function startDaemonIpcServer(
             }
             const id = req.id;
             try {
-              const resp = await dispatch(req, config, indexer);
+              const resp = await dispatch(req, indexing);
               if (!socket.destroyed) {
                 socket.write(encodeMessage(resp));
               }

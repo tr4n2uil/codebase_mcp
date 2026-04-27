@@ -3,16 +3,25 @@ import readline from 'node:readline';
 import type { IpcCmd, IpcRequest, IpcResponse } from './ipc-protocol.js';
 import { encodeMessage, parseLine } from './ipc-protocol.js';
 
-function connectNet(pathOrPipe: string): Promise<net.Socket> {
+function connectNet(pathOrPipe: string, timeoutMs: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(pathOrPipe);
+    const t = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`IPC connect to ${pathOrPipe} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    const clear = () => {
+      clearTimeout(t);
+    };
     const onErr = (err: Error) => {
+      clear();
       socket.destroy();
       reject(err);
     };
     socket.once('error', onErr);
     socket.once('connect', () => {
       socket.off('error', onErr);
+      clear();
       resolve(socket);
     });
   });
@@ -60,8 +69,8 @@ export class DaemonClient {
     });
   }
 
-  static async connect(listenPath: string): Promise<DaemonClient> {
-    const socket = await connectNet(listenPath);
+  static async connect(listenPath: string, connectTimeoutMs = 8_000): Promise<DaemonClient> {
+    const socket = await connectNet(listenPath, connectTimeoutMs);
     return new DaemonClient(socket);
   }
 

@@ -18,7 +18,11 @@ export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
           'warmup: first ONNX run (graph compile; on CPU this often takes 1–10+ minutes, high usage is expected)…',
         );
         const warm = Array.from({ length: Math.min(8, Math.max(1, config.embedBatchSize)) }, () => 'x');
-        await withInferencePendingLogs('warmup', ex(warm, { pooling: 'mean', normalize: true }));
+        await withInferencePendingLogs(
+          'warmup',
+          ex(warm, { pooling: 'mean', normalize: true }),
+          config.embedInferenceLogMs,
+        );
         logInfo('embedder', `ready: ${config.embeddingModel}`);
         return ex;
       })
@@ -58,17 +62,18 @@ function tensorToVectors(tensor: { data: Float32Array; dims?: number[] }, expect
   throw new Error(`Unexpected embedding tensor shape: dims=${JSON.stringify(dims)} len=${data.length}`);
 }
 
-const HEARTBEAT_MS = 20_000;
-
-function withInferencePendingLogs<T>(label: string, p: Promise<T>): Promise<T> {
+function withInferencePendingLogs<T>(label: string, p: Promise<T>, intervalMs: number): Promise<T> {
+  if (intervalMs <= 0) {
+    return p;
+  }
   const t0 = Date.now();
   const id = setInterval(() => {
     const s = Math.floor((Date.now() - t0) / 1000);
     logInfo(
       'embedder',
-      `… still in ${label} (${s}s) — not frozen; set CODEBASE_MCP_EMBED_BATCH_SIZE=1 for smaller steps`,
+      `… still in ${label} (${s}s) — not frozen; high CPU is normal. Set CODEBASE_MCP_EMBED_INFER_LOG_MS=0 to silence`,
     );
-  }, HEARTBEAT_MS);
+  }, intervalMs);
   return p.finally(() => {
     clearInterval(id);
   });
@@ -78,6 +83,7 @@ export async function embedTexts(
   extractor: FeatureExtractor,
   texts: string[],
   expectedDim: number,
+  inferenceLogMs = 0,
 ): Promise<Float32Array[]> {
   if (texts.length === 0) {
     return [];
@@ -90,6 +96,7 @@ export async function embedTexts(
   const tensor = await withInferencePendingLogs(
     'batch inference',
     extractor(texts, { pooling: 'mean', normalize: true }),
+    inferenceLogMs,
   );
   return tensorToVectors(tensor, expectedDim);
 }

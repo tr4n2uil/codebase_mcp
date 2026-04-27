@@ -16,7 +16,7 @@ export async function runCodebaseSearch(
   const lim = args.limit ?? 10;
   const candidateLimit = Math.max(lim, config.rerankCandidates);
   const extractor = await getEmbedder(config);
-  const [qvec] = await embedTexts(extractor, [args.query], config.embeddingDim);
+  const [qvec] = await embedTexts(extractor, [args.query], config.embeddingDim, config.embedInferenceLogMs);
   if (!qvec) {
     return { content: [{ type: 'text' as const, text: 'Failed to embed query.' }] };
   }

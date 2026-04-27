@@ -13,7 +13,7 @@ let lineBuf = '';
  * Append all stderr (including `console.error`) to `<indexDir>/.logs/mcp.log` or `daemon.log`,
  * while still writing to the original stderr. Each *line* in the file is prefixed with `[pid=…] `.
  * Lines are written with `appendFileSync` so `tail` and IDEs see new rows immediately (no `WriteStream` buffer delay).
- * `indexDir` is the resolved `CODEBASE_MCP_INDEX_DIR` (e.g. `.../codebase_mcp/db/<repo>/`), next to `meta.json` and `lancedb/`.
+ * `indexDir` is the resolved `CODEBASE_MCP_INDEX_DIR` (default `.../<repo>/.claude/codebase_mcp/db`), next to `meta.json` and `lancedb/`.
  */
 export function initFileLogging(indexDirAbs: string, kind: FileLogKind): string {
   if (fileLoggingInited) {

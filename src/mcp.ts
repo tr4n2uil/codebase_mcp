@@ -99,7 +99,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB.',
+        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to <repo>/.claude/codebase_mcp/db (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB.',
       inputSchema: {
         query: z.string().min(1).describe('Natural language search query'),
         limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),

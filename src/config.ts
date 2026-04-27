@@ -1,25 +1,13 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseForceIncludeList } from './force-include.js';
 
 const DEFAULT_MODEL = 'Xenova/jina-embeddings-v2-base-en';
 const DEFAULT_EMBEDDING_DIM = 768;
 const DEFAULT_EMBED_INFER_LOG_MS = 20_000;
 
-/** Directory containing this module (`dist/` when compiled). */
-function packageRootDir(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-}
-
-/** Stable folder name under `db/` from the watch root (basename, sanitized). Collisions if two repos share a basename — set CODEBASE_MCP_INDEX_DIR to override. */
-export function repoDataDirName(watchRootAbs: string): string {
-  const base = path.basename(watchRootAbs.replace(/[/\\]+$/, '')) || 'repo';
-  const slug = base.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'repo';
-  return slug;
-}
-
+/** Default index + logs under the repo (per `CODEBASE_MCP_ROOT`). Override with `CODEBASE_MCP_INDEX_DIR`. */
 function defaultIndexDirAbs(watchRootAbs: string): string {
-  return path.join(packageRootDir(), 'db', repoDataDirName(watchRootAbs));
+  return path.join(watchRootAbs, '.claude', 'codebase_mcp', 'db');
 }
 
 export interface AppConfig {
@@ -123,7 +111,16 @@ export function loadConfig(): AppConfig {
       : pollingEnv === '1' || pollingEnv === 'true' || pollingEnv === 'yes';
   const pollingIntervalMs =
     Number.parseInt(process.env.CODEBASE_MCP_POLL_MS || '2000', 10) || 2000;
-  const forceIncludeRelPosix = parseForceIncludeList(process.env.CODEBASE_MCP_FORCE_INCLUDE);
+  const rawForceInclude = process.env.CODEBASE_MCP_FORCE_INCLUDE?.trim() ?? '';
+  const forceIncludeRelPosix = (() => {
+    if (rawForceInclude === '') {
+      return ['.claude/docs'];
+    }
+    if (rawForceInclude === '-' || /^none$/i.test(rawForceInclude)) {
+      return [];
+    }
+    return parseForceIncludeList(process.env.CODEBASE_MCP_FORCE_INCLUDE);
+  })();
   const codeAwareChunking = parseBool(process.env.CODEBASE_MCP_CODE_AWARE_CHUNKING, true);
   const rerankEnabled = parseBool(process.env.CODEBASE_MCP_RERANK, true);
   const rerankCandidates =

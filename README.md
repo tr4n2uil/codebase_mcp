@@ -1,6 +1,6 @@
 # codebase-mcp
 
-Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules, and optional **`CODEBASE_MCP_FORCE_INCLUDE`** for gitignored paths you still want indexed), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`codebase-mcp/db/<repo-name>/`** (ignored in this package via `db/`), and exposes **MCP tools** for agents.
+Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules; by default **`CODEBASE_MCP_FORCE_INCLUDE`** includes **`.claude/docs`** so that tree can be indexed even if gitignored), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`** by default (override with **`CODEBASE_MCP_INDEX_DIR`**), and exposes **MCP tools** for agents.
 
 ## Prerequisites
 
@@ -44,40 +44,42 @@ npm run daemon
 
 Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.
 
-**Logs:** stderr is mirrored to **`<CODEBASE_MCP_INDEX_DIR>/.logs/mcp.log`** (MCP / stdio process) or **`.logs/daemon.log`** (`--daemon` indexer). All lines in those files are prefixed with **`[pid=…] `** so multiple processes and restarts are easy to follow. (Default: `codebase-mcp/db/<repo>/.logs/`; under `db/` and gitignored with the index.) Use this to confirm indexing when the daemon was started detached.
+**Logs:** stderr is mirrored to **`<CODEBASE_MCP_INDEX_DIR>/.logs/mcp.log`** (MCP / stdio process) or **`.logs/daemon.log`** (`--daemon` indexer). All lines in those files are prefixed with **`[pid=…] `** so multiple processes and restarts are easy to follow. (Default index dir: **`<repo>/.claude/codebase_mcp/db`** — add `.claude/` to `.gitignore` if you do not want the index in version control.) Use this to confirm indexing when the daemon was started detached.
 
 First run downloads the embedding model (cached by Transformers.js, see `HF_HOME` / `XDG_CACHE_HOME`).
 
 ### Optional environment
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CODEBASE_MCP_ROOT` | _(required)_ | Repo root to watch and index |
-| `CODEBASE_MCP_INDEX_DIR` | `codebase-mcp/db/<basename(root)>/` | Where LanceDB + `meta.json` live (under this package). Override for custom location or to avoid basename collisions. |
-| `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | Transformers.js model id |
-| `CODEBASE_MCP_EMBEDDING_DIM` | `768` | Must match the model output size |
-| `CODEBASE_MCP_EMBED_BATCH_SIZE` | `4` | Chunks per ONNX call (1–32). Smaller batches = more log lines and less RAM per step; first CPU run can still take many minutes. |
-| `CODEBASE_MCP_EMBED_INFER_LOG_MS` | `20000` | Log “still in inference” at this interval (ms) during ONNX (warmup + each batch) so you can tell work is still running. `0` disables. Example: `120000` for every 2 minutes. |
-| `CODEBASE_MCP_ORT_UNLIMITED` | `false` | If `1`/`true`, do **not** cap ONNX CPU threads (Transformers.js leaves ORT defaults → often **~100% × N cores** in Activity Monitor). Default caps keep **intra/inter** threads low so the OS is less likely to throttle or kill the daemon. |
-| `CODEBASE_MCP_ORT_INTRA_OP_THREADS` | `1` | ONNX [intra-op thread](https://onnxruntime.ai/docs/performance/tune-performance/threading.html) count (1 ≈ one core’s worth of parallel work inside an op; increase for speed, lower for cooler CPU). |
-| `CODEBASE_MCP_ORT_INTER_OP_THREADS` | `1` | ONNX inter-op threads (parallelism between graph nodes). |
-| `CODEBASE_MCP_ORT_SEQUENTIAL` | `true` | If `true`, use `executionMode: sequential` with the caps above. Set `false` only if you know the model benefits from parallel mode. |
-| `CODEBASE_MCP_ORT_WASM_NUM_THREADS` | `1` | If inference falls back to the **wasm** backend, cap `wasm.numThreads` (Transformers). |
-| `CODEBASE_MCP_CHUNK_LINES` | `60` | Lines per chunk |
-| `CODEBASE_MCP_CHUNK_OVERLAP` | `12` | Overlap between chunks |
-| `CODEBASE_MCP_MAX_FILE_BYTES` | `5242880` | Skip larger files |
-| `CODEBASE_MCP_DEBOUNCE_MS` | `1500` | _(reserved for future tuning)_ |
-| `CODEBASE_MCP_RECONCILE_MS` | `300000` | Periodic full reconcile (ms) |
-| `CODEBASE_MCP_USE_POLLING` | `true` | `true`/`1` uses polling (fewer file descriptors; avoids **EMFILE** on large trees). Set `false` for native `fs.watch` on small repos. |
-| `CODEBASE_MCP_POLL_MS` | `2000` | Polling interval when polling is enabled |
-| `CODEBASE_MCP_CODE_AWARE_CHUNKING` | `true` | Use symbol-aware chunk boundaries (with fallback to fixed line chunks) |
-| `CODEBASE_MCP_RERANK` | `true` | Apply lexical/path reranking to vector search candidates |
-| `CODEBASE_MCP_RERANK_CANDIDATES` | `50` | Candidate pool size fetched before reranking |
-| `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | Include `rerank_score` in `codebase_search` output for tuning/debugging |
-| `CODEBASE_MCP_VERBOSE` | `true` | Log every successfully indexed file (`path` + chunk count); set `false` on very large repos |
-| `CODEBASE_MCP_LOG_TOOLS` | `true` | Log each MCP tool call name (and reindex path) to stderr; set `false` to reduce noise |
-| `CODEBASE_MCP_FORCE_INCLUDE` | _(empty)_ | Comma- or newline-separated **repo-relative** POSIX paths (e.g. `generated/api,tmp/docs`) that are indexed **even if** matched by root `.gitignore`. Lets you avoid `!` negation rules in `.gitignore`. Does **not** override hard safety skips (`.git/`, `node_modules/`, `.env*`, key material, etc.). Also overrides watcher segment skips (`dist/`, `build/`, …) when the path is on the way to or inside a listed entry. |
-| `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** Node process (no shared daemon). |
+All variables are read from `process.env` via `loadConfig()` in **each** Node process. Use the **Applies to** column: **MCP** = the stdio `codebase-mcp` process; **Daemon** = `codebase-mcp-daemon` (watcher + indexer + IPC writer); **Both** = set to the same values in MCP and daemon when you run them separately (so paths, model, and embedding options stay consistent). Variables marked **Daemon** have **no effect on search** if you set them only in the Cursor MCP `env` block; put them in the environment where the **daemon** runs (or use **`CODEBASE_MCP_NO_DAEMON=1`** so one process does everything and one `env` block covers indexing + search).
+
+| Variable | Default | Applies to | Purpose |
+|----------|---------|------------|---------|
+| `CODEBASE_MCP_ROOT` | _(required)_ | **Both** | Repo root. Must match between MCP and daemon. |
+| `CODEBASE_MCP_INDEX_DIR` | `<CODEBASE_MCP_ROOT>/.claude/codebase_mcp/db` | **Both** | Where LanceDB + `meta.json` live (default: under the repo’s `.claude/` tree). Must match between MCP and daemon. Override for a custom path or CI cache. |
+| `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | **Both** | Model id. Must match stored index metadata; used for **query** embed (MCP) and **ingest** embed (daemon). |
+| `CODEBASE_MCP_EMBEDDING_DIM` | `768` | **Both** | Vector dimension; must match model and index. |
+| `CODEBASE_MCP_EMBED_BATCH_SIZE` | `4` | **Both** | Chunks (daemon) or batching behavior when embedding; query path uses batches too. |
+| `CODEBASE_MCP_EMBED_INFER_LOG_MS` | `20000` | **Both** | Heartbeat while ONNX runs (`0` = off). |
+| `CODEBASE_MCP_ORT_UNLIMITED` | `false` | **Both** | ONNX thread caps: `false` = cap CPU. |
+| `CODEBASE_MCP_ORT_INTRA_OP_THREADS` | `1` | **Both** | ONNX intra-op threads. |
+| `CODEBASE_MCP_ORT_INTER_OP_THREADS` | `1` | **Both** | ONNX inter-op threads. |
+| `CODEBASE_MCP_ORT_SEQUENTIAL` | `true` | **Both** | Prefer sequential execution mode with caps. |
+| `CODEBASE_MCP_ORT_WASM_NUM_THREADS` | `1` | **Both** | Wasm backend thread count if used. |
+| `CODEBASE_MCP_CHUNK_LINES` | `60` | **Daemon** | Lines per chunk when indexing. |
+| `CODEBASE_MCP_CHUNK_OVERLAP` | `12` | **Daemon** | Line overlap between chunks. |
+| `CODEBASE_MCP_MAX_FILE_BYTES` | `5242880` | **Daemon** | Max file size to index. |
+| `CODEBASE_MCP_DEBOUNCE_MS` | `1500` | **Daemon** | _(Reserved / watcher debounce.)_ |
+| `CODEBASE_MCP_RECONCILE_MS` | `300000` | **Daemon** | Interval for periodic full reconcile. |
+| `CODEBASE_MCP_USE_POLLING` | `true` | **Daemon** | Polling vs native `fs.watch` for the watcher. |
+| `CODEBASE_MCP_POLL_MS` | `2000` | **Daemon** | Polling interval. |
+| `CODEBASE_MCP_CODE_AWARE_CHUNKING` | `true` | **Daemon** | Symbol-aware chunking when indexing. |
+| `CODEBASE_MCP_RERANK` | `true` | **MCP** | Rerank vector hits lexically in `codebase_search`. |
+| `CODEBASE_MCP_RERANK_CANDIDATES` | `50` | **MCP** | Candidate pool before rerank. |
+| `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | **MCP** | Expose `rerank_score` in search output. |
+| `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
+| `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
+| `CODEBASE_MCP_FORCE_INCLUDE` | `.claude/docs` | **Daemon** | Comma- or newline-separated **repo-relative** paths indexed even if `.gitignore` would skip them. Default alone includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra includes). **Not used for search**; set on the **daemon** env (or the single process when `CODEBASE_MCP_NO_DAEMON=1`). |
+| `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | **MCP** | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** process (no separate daemon). |
 
 Lower-CPU, less code-aware alternative (previous default):
 
@@ -94,6 +96,8 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
 
 ## Cursor MCP config example
 
+The `env` object applies to the **MCP** process only. At minimum set **`CODEBASE_MCP_ROOT`** (and override **`CODEBASE_MCP_INDEX_DIR`** if needed). **Indexing** options such as **`CODEBASE_MCP_FORCE_INCLUDE`** must be set on the **daemon** (see *Start the daemon* above), not here, unless you use **`CODEBASE_MCP_NO_DAEMON=1`**.
+
 ```json
 {
   "mcpServers": {
@@ -101,15 +105,24 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
       "command": "node",
       "args": ["/absolute/path/to/codebase-mcp/dist/main.js"],
       "env": {
-        "CODEBASE_MCP_ROOT": "/absolute/path/to/your/repo",
-        "CODEBASE_MCP_FORCE_INCLUDE": "path/inside/gitignored/tree"
+        "CODEBASE_MCP_ROOT": "/absolute/path/to/your/repo"
       }
     }
   }
 }
 ```
 
+**Daemon** (separate terminal), same index — example including force-include for gitignored trees:
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+export CODEBASE_MCP_FORCE_INCLUDE="path/inside/gitignored/tree"
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
+```
+
 ## Claude Code MCP config example
+
+Same as Cursor: MCP `env` is for the stdio server; put **`CODEBASE_MCP_FORCE_INCLUDE`** (and other **Daemon** rows from the table) on the **daemon** process.
 
 ```json
 {
@@ -118,11 +131,10 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
       "command": "node",
       "args": ["/absolute/path/to/codebase-mcp/dist/main.js"],
       "env": {
-        "CODEBASE_MCP_ROOT": "/absolute/path/to/your/repo",
-        "CODEBASE_MCP_FORCE_INCLUDE": "path/inside/gitignored/tree"
+        "CODEBASE_MCP_ROOT": "/absolute/path/to/your/repo"
       }
     }
-  },
+  }
 }
 ```
 

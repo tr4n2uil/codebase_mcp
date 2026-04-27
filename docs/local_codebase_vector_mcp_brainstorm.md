@@ -118,7 +118,7 @@ Optional resources: `codebase://manifest` listing top-level indexed paths (keep 
 - [x] **Language/runtime:** **TypeScript (Node)** for v1 — local embeddings via **`@xenova/transformers`** (satisfies free/local constraint); Python remains a documented alternative if needed later.
 - [x] **Embeddings:** **local / free** — **`@xenova/transformers`** as default embedder; paid API only as optional opt-in if ever needed.
 - [x] **Chunking:** **fixed overlapping lines for v1**; tree-sitter only if v1 retrieval is insufficient (see **Chunking strategy** above).
-- [x] **Index location:** **per-repo** — default **`codebase_mcp/db/<basename>/`**; optional `CODEBASE_MCP_INDEX_DIR`; see **Index storage**.
+- [x] **Index location:** **per-repo** — default **`<repo>/.claude/codebase_mcp/db`**; optional `CODEBASE_MCP_INDEX_DIR`; see **Index storage**.
 - [x] **Multi-session hosts:** **shared indexing daemon** per `CODEBASE_MCP_INDEX_DIR`; stdio MCP processes are thin clients; **`CODEBASE_MCP_NO_DAEMON`** restores single-process mode; **`--daemon`** runs the long-lived indexer explicitly.
 
 ## Related paths (when implementing)

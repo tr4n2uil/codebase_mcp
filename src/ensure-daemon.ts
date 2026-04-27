@@ -17,12 +17,18 @@ function mainScriptPath(): string {
 
 const PING_ATTEMPT_TIMEOUT_MS = 8_000;
 
+/** Shorter connect+ping for “is a daemon already bound here?” in `--daemon` idempotent start. */
+const DUPLICATE_DAEMON_PING_TIMEOUT_MS = 2_000;
+
 /**
  * Tries a single connect + `ping` round-trip. **Bounded** in wall time: if the socket never
  * connects, or the server never returns a line, or `call` hangs, we destroy the client and
  * return null so the outer `ensure` loop can retry instead of stalling the MCP process forever.
  */
-async function tryPing(listenPath: string): Promise<DaemonClient | null> {
+async function tryPingWithTimeout(
+  listenPath: string,
+  timeoutMs: number,
+): Promise<DaemonClient | null> {
   let c: DaemonClient | null = null;
   let timedOut = false;
   const t = setTimeout(() => {
@@ -33,7 +39,7 @@ async function tryPing(listenPath: string): Promise<DaemonClient | null> {
       /* ignore */
     }
     c = null;
-  }, PING_ATTEMPT_TIMEOUT_MS);
+  }, timeoutMs);
   try {
     c = await DaemonClient.connect(listenPath);
     if (timedOut) {
@@ -64,6 +70,23 @@ async function tryPing(listenPath: string): Promise<DaemonClient | null> {
   } finally {
     clearTimeout(t);
   }
+}
+
+function tryPing(listenPath: string): Promise<DaemonClient | null> {
+  return tryPingWithTimeout(listenPath, PING_ATTEMPT_TIMEOUT_MS);
+}
+
+/**
+ * `true` if this index’ IPC path already has a live indexer (ping ok).  
+ * Used by `node main.js --daemon` to exit without bootstrapping a second daemon.
+ */
+export async function isIndexerDaemonAlreadyRunning(listenPath: string): Promise<boolean> {
+  const c = await tryPingWithTimeout(listenPath, DUPLICATE_DAEMON_PING_TIMEOUT_MS);
+  if (c) {
+    c.destroy();
+    return true;
+  }
+  return false;
 }
 
 async function unlinkIfExists(p: string): Promise<void> {

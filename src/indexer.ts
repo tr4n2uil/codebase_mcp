@@ -14,6 +14,7 @@ import {
 } from './path-filters.js';
 import { isCoveredByForceInclude } from './force-include.js';
 import { isIgnored, normalizeIgnorePath } from './gitignore.js';
+import { yieldToEventLoop } from './event-loop-yield.js';
 import { logError, logInfo } from './log.js';
 import type { ChunkRow } from './store.js';
 import { ChunkStore } from './store.js';
@@ -23,6 +24,25 @@ const MAX_CHUNK_CHARS = 12_000;
 
 function sha256Hex(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+/** Small files: one sync hash. Larger: incremental hash with yields so the daemon can still process IPC. */
+const SHA256_INLINE_MAX_BYTES = 64 * 1024;
+const SHA256_YIELD_EVERY_BYTES = 256 * 1024;
+
+async function sha256HexWithYields(content: string): Promise<string> {
+  const buf = Buffer.from(content, 'utf8');
+  if (buf.length <= SHA256_INLINE_MAX_BYTES) {
+    return createHash('sha256').update(buf).digest('hex');
+  }
+  const hash = createHash('sha256');
+  for (let i = 0; i < buf.length; i += SHA256_YIELD_EVERY_BYTES) {
+    hash.update(buf.subarray(i, i + SHA256_YIELD_EVERY_BYTES));
+    if (i + SHA256_YIELD_EVERY_BYTES < buf.length) {
+      await yieldToEventLoop();
+    }
+  }
+  return hash.digest('hex');
 }
 
 function embeddingTextForChunk(relPath: string, chunk: TextChunk): string {
@@ -136,6 +156,7 @@ export class Indexer {
   }
 
   private async runIndexAbsoluteFileBody(absPath: string, source: IndexFileSource): Promise<void> {
+    await yieldToEventLoop();
     const rel = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
     if (isSafetyIgnored(rel)) {
       return;
@@ -172,8 +193,10 @@ export class Indexer {
       if (source === 'fullscan') {
         this.fullScanStatSkips += 1;
       }
+      logInfo('indexer', `${rel}  [stat cache — no read]`);
       return;
     }
+    logInfo('indexer', `${rel}  [read]`);
     let content: string;
     try {
       content = await fs.readFile(absPath, 'utf8');
@@ -181,25 +204,37 @@ export class Indexer {
       logError('indexer', `read failed, skipping: ${rel}`, e);
       return;
     }
-    const hash = sha256Hex(content);
+    const hash = await sha256HexWithYields(content);
     if (this.meta.fileHashes[rel] === hash) {
       this.setFileStatCache(rel, st);
       if (source === 'fullscan') {
         this.fullScanHashSkips += 1;
       }
+      logInfo('indexer', `${rel}  [hash match meta — no re-embed]`);
       if (source === 'watcher') {
         await this.persistMeta();
       }
       return;
     }
-    if (!this.config.logIndexEachFile) {
-      logInfo('indexer', `re-embed ${rel}: loading model if needed, then chunking + embedding…`);
+    logInfo('indexer', `${rel}  [re-embed: chunk + embed]`);
+    if (content.length > 1_200_000) {
+      logInfo(
+        'indexer',
+        `large file (${(content.length / 1_000_000).toFixed(1)}M chars) — full-scan “rechecked N” will advance after it finishes; chunking yields to IPC in chunks`,
+      );
     }
     const extractor = await getEmbedder(this.config);
+    if (content.length > 300_000) {
+      await yieldToEventLoop();
+    }
     const chunks = this.config.codeAwareChunking
-      ? chunkCodeAware(content, absPath, this.config.chunkLines, this.config.chunkOverlapLines)
-      : chunkByLines(content, this.config.chunkLines, this.config.chunkOverlapLines);
+      ? await chunkCodeAware(content, absPath, this.config.chunkLines, this.config.chunkOverlapLines)
+      : await chunkByLines(content, this.config.chunkLines, this.config.chunkOverlapLines);
+    if (content.length > 300_000) {
+      await yieldToEventLoop();
+    }
     if (chunks.length === 0) {
+      logInfo('indexer', `${rel}  [no chunks after split — store cleared for path]`);
       await this.store.deleteByPath(rel);
       this.meta.fileHashes[rel] = hash;
       this.setFileStatCache(rel, st);
@@ -213,11 +248,15 @@ export class Indexer {
     if (!this.config.logIndexEachFile) {
       logInfo('indexer', `re-embedding ${rel} (${chunks.length} chunks, ${totalBatches} batch${totalBatches === 1 ? '' : 'es'})…`);
     }
-    const texts = chunks.map((c) => {
+    const texts: string[] = [];
+    for (let j = 0; j < chunks.length; j++) {
+      if (j > 0 && j % 5_000 === 0) {
+        await yieldToEventLoop();
+      }
+      const c = chunks[j]!;
       const embedText = embeddingTextForChunk(rel, c);
-      return embedText.length > MAX_CHUNK_CHARS ? embedText.slice(0, MAX_CHUNK_CHARS) : embedText;
-    },
-    );
+      texts.push(embedText.length > MAX_CHUNK_CHARS ? embedText.slice(0, MAX_CHUNK_CHARS) : embedText);
+    }
     const vectors: Float32Array[] = [];
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
@@ -247,9 +286,8 @@ export class Indexer {
     this.meta.lastFullScanAt = new Date().toISOString();
     await this.persistMeta();
     this.indexPassCount += 1;
-    if (this.config.logIndexEachFile) {
-      logInfo('indexer', `indexed ${rel} (${chunks.length} chunk${chunks.length === 1 ? '' : 's'})`);
-    } else if (this.indexPassCount % 10 === 0) {
+    logInfo('indexer', `${rel}  [embed done: ${chunks.length} chunk(s)]`);
+    if (!this.config.logIndexEachFile && this.indexPassCount % 10 === 0) {
       logInfo('indexer', `progress: ${this.indexPassCount} file(s) re-indexed in this pass (last: ${rel})`);
     }
   }

@@ -1,3 +1,5 @@
+import { yieldToEventLoop } from './event-loop-yield.js';
+
 export interface TextChunk {
   startLine: number;
   endLine: number;
@@ -7,8 +9,50 @@ export interface TextChunk {
   symbolKind?: string;
 }
 
-export function chunkByLines(content: string, chunkLines: number, overlapLines: number): TextChunk[] {
-  const lines = content.split(/\r?\n/);
+/** Use fast path below this; above, scan for newlines in chunks and yield to keep IPC alive. */
+const LINES_STRING_SYNC_MAX = 1_000_000;
+const LINES_YIELD_EVERY = 10_000;
+const SYMBOLS_YIELD_EVERY = 5_000;
+const CHUNKEMIT_YIELD_EVERY = 200;
+
+/**
+ * Build the same `string[]` as `content.split(/\r?\n/)`, with periodic yields for huge files so
+ * a single 100k-line+ file does not block the daemon event loop and IPC.
+ */
+export async function buildLinesArray(content: string): Promise<string[]> {
+  if (content.length <= LINES_STRING_SYNC_MAX) {
+    return content.split(/\r?\n/);
+  }
+  const lines: string[] = [];
+  let start = 0;
+  let lineCount = 0;
+  for (let p = 0; p < content.length; p++) {
+    if (content.charCodeAt(p) === 10) {
+      /* \n */
+      let line = content.slice(start, p);
+      if (line.endsWith('\r')) {
+        line = line.slice(0, -1);
+      }
+      lines.push(line);
+      start = p + 1;
+      lineCount += 1;
+      if (lineCount % LINES_YIELD_EVERY === 0) {
+        await yieldToEventLoop();
+      }
+    }
+  }
+  {
+    const rest = content.slice(start);
+    lines.push(rest.endsWith('\r') ? rest.slice(0, -1) : rest);
+  }
+  return lines;
+}
+
+export function chunkByLinesFromLines(
+  lines: string[],
+  chunkLines: number,
+  overlapLines: number,
+): TextChunk[] {
   if (lines.length === 0) {
     return [];
   }
@@ -27,6 +71,15 @@ export function chunkByLines(content: string, chunkLines: number, overlapLines: 
     }
   }
   return chunks;
+}
+
+export async function chunkByLines(
+  content: string,
+  chunkLines: number,
+  overlapLines: number,
+): Promise<TextChunk[]> {
+  const lines = await buildLinesArray(content);
+  return chunkByLinesFromLines(lines, chunkLines, overlapLines);
 }
 
 interface SymbolSpan {
@@ -59,60 +112,61 @@ function detectLanguage(filePath: string): string {
   return ext;
 }
 
-function extractSymbols(lines: string[], language: string): SymbolSpan[] {
+async function extractSymbols(lines: string[], language: string): Promise<SymbolSpan[]> {
   const symbols: SymbolSpan[] = [];
   for (let i = 0; i < lines.length; i++) {
+    if (i > 0 && i % SYMBOLS_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
     const line = lines[i] ?? '';
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) {
       continue;
     }
-
+    const lineNum = i + 1;
     let m: RegExpMatchArray | null = null;
     if (language === 'javascript') {
       m = trimmed.match(/^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/);
       if (m) {
-        symbols.push({ name: m[1]!, kind: 'function', startLine: i + 1 });
+        symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
         continue;
       }
       m = trimmed.match(/^(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/);
       if (m) {
-        symbols.push({ name: m[1]!, kind: 'class', startLine: i + 1 });
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
         continue;
       }
       m = trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>/);
       if (m) {
-        symbols.push({ name: m[1]!, kind: 'function', startLine: i + 1 });
+        symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
         continue;
       }
       m = trimmed.match(/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?function\b/);
       if (m) {
-        symbols.push({ name: m[1]!, kind: 'function', startLine: i + 1 });
+        symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
       }
       continue;
     }
-
     if (language === 'python') {
       m = trimmed.match(/^def\s+([A-Za-z_]\w*)\s*\(/);
       if (m) {
-        symbols.push({ name: m[1]!, kind: 'function', startLine: i + 1 });
+        symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
         continue;
       }
       m = trimmed.match(/^class\s+([A-Za-z_]\w*)\b/);
       if (m) {
-        symbols.push({ name: m[1]!, kind: 'class', startLine: i + 1 });
+        symbols.push({ name: m[1]!, kind: 'class', startLine: lineNum });
       }
       continue;
     }
-
     m = trimmed.match(/^(?:export\s+)?(?:func|fn)\s+([A-Za-z_]\w*)\s*\(/);
     if (m) {
-      symbols.push({ name: m[1]!, kind: 'function', startLine: i + 1 });
+      symbols.push({ name: m[1]!, kind: 'function', startLine: lineNum });
       continue;
     }
     m = trimmed.match(/^(?:export\s+)?(?:class|struct|interface|trait|type)\s+([A-Za-z_]\w*)\b/);
     if (m) {
-      symbols.push({ name: m[1]!, kind: 'type', startLine: i + 1 });
+      symbols.push({ name: m[1]!, kind: 'type', startLine: lineNum });
     }
   }
   return symbols;
@@ -145,20 +199,20 @@ function splitLargeSymbolChunk(
   return out;
 }
 
-export function chunkCodeAware(
+export async function chunkCodeAware(
   content: string,
   filePath: string,
   chunkLines: number,
   overlapLines: number,
-): TextChunk[] {
-  const lines = content.split(/\r?\n/);
+): Promise<TextChunk[]> {
+  const lines = await buildLinesArray(content);
   if (lines.length === 0) {
     return [];
   }
   const language = detectLanguage(filePath);
-  const symbols = extractSymbols(lines, language);
+  const symbols = await extractSymbols(lines, language);
   if (symbols.length === 0) {
-    return chunkByLines(content, chunkLines, overlapLines).map((c) => ({ ...c, language }));
+    return chunkByLinesFromLines(lines, chunkLines, overlapLines).map((c) => ({ ...c, language }));
   }
 
   const chunks: TextChunk[] = [];
@@ -172,6 +226,9 @@ export function chunkCodeAware(
   }
 
   for (let i = 0; i < symbols.length; i++) {
+    if (i > 0 && i % CHUNKEMIT_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
     const current = symbols[i]!;
     const next = symbols[i + 1];
     const startLine = current.startLine;

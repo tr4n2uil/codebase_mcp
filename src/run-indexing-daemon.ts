@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import { loadConfig, type AppConfig } from './config.js';
+import { isIndexerDaemonAlreadyRunning } from './ensure-daemon.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
 import { daemonStateDir, getDaemonListenPath } from './daemon-paths.js';
 import { startDaemonIpcServer } from './daemon-server.js';
@@ -24,6 +25,14 @@ export async function runIndexingDaemon(configIn?: AppConfig): Promise<void> {
   const config = configIn ?? loadConfig();
   const listenPath = getDaemonListenPath(config.indexDirAbs);
   await fs.mkdir(daemonStateDir(config.indexDirAbs), { recursive: true });
+
+  if (await isIndexerDaemonAlreadyRunning(listenPath)) {
+    logInfo(
+      'daemon',
+      `indexer already running for this index (ping ok on ${listenPath}); exit 0 (idempotent --daemon)`,
+    );
+    process.exit(0);
+  }
 
   const { indexer, closeWatcher } = await bootstrapIndexing(config);
 

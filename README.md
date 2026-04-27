@@ -22,13 +22,24 @@ export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
 node dist/main.js
 ```
 
-**You only need `node dist/main.js` in Cursor (or any MCP client).** Do not pass `--daemon` there: if no indexer is listening yet for this **same** `CODEBASE_MCP_ROOT` + `CODEBASE_MCP_INDEX_DIR` (resolved the same way), the first `main.js` will **start** `node dist/main.js --daemon` in the background with the **same `env`**.
+**MCP stdio (`node dist/main.js`) does not start the indexer** — it only **tries a quick connect** to an already-running daemon for `codebase_reindex`. **You start the indexer separately** (same `CODEBASE_MCP_ROOT` / `CODEBASE_MCP_INDEX_DIR` as the MCP).
 
-**Process model (default):** one **indexing daemon** per `CODEBASE_MCP_INDEX_DIR` (watcher + ingest + **sole writer** to LanceDB). A Unix domain socket or Windows named pipe under **`<index>/.codebase-mcp-daemon/`** is used only to **start the daemon if needed (ping) and to run `codebase_reindex`**. Each stdio `node dist/main.js` process **reads the same LanceDB** for **`codebase_search` / `codebase_stats`** and runs **query embeddings locally** (so multiple MCP clients do not route search through IPC). You can also start the daemon yourself:
+**Process model (default):** one **indexing daemon** per index directory (watcher + ingest + **sole writer** to LanceDB). A Unix domain socket or Windows named pipe under **`<index>/.codebase-mcp-daemon/socket`** is used for **`codebase_reindex` IPC** when the daemon is up. Each MCP process **reads LanceDB read-only** for **`codebase_search` / `codebase_stats`** and embeds queries locally.
+
+**Start the daemon (pick one):**
 
 ```bash
 export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
-node dist/main.js --daemon
+# Installed package (after `npm install` in this repo: `npm run build` first):
+npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
+```
+
+From a local clone of this repo (after `npm run build`):
+
+```bash
+export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
+npm run daemon
+# or: node dist/main.js --daemon
 ```
 
 Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.

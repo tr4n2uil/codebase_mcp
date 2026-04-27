@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import { loadConfig, type AppConfig } from './config.js';
-import { isIndexerDaemonAlreadyRunning } from './ensure-daemon.js';
+import { isIndexerDaemonAlreadyRunning } from './daemon-connect.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
 import { daemonStateDir, getDaemonListenPath } from './daemon-paths.js';
 import { startDaemonIpcServer } from './daemon-server.js';

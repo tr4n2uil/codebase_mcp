@@ -4,10 +4,15 @@ import { loadConfig } from './config.js';
 import { initFileLogging, registerFatalProcessLogging, type FileLogKind } from './logger.js';
 import { logError, logInfo } from './log.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
-import { ensureDaemonClient } from './ensure-daemon.js';
+import { tryConnectDaemonClient } from './daemon-connect.js';
+import { runDaemonCliMain } from './daemon-cli.js';
 import { ChunkStore } from './store.js';
-import { createLocalMcpBackend, createSharedDaemonMcpBackend, runMcpServer } from './mcp.js';
-import { runIndexingDaemon } from './run-indexing-daemon.js';
+import {
+  createLocalMcpBackend,
+  createSharedDaemonMcpBackend,
+  DAEMON_REINDEX_HOWTO,
+  runMcpServer,
+} from './mcp.js';
 
 function argvHasDaemonFlag(): boolean {
   return process.argv.includes('--daemon');
@@ -49,10 +54,15 @@ async function runInlineMcpWithLocalIndexing(config: AppConfig): Promise<void> {
   await runMcpServer(config, backend);
 }
 
-/** Default: stdio MCP only; indexer daemon is started automatically if not already up for this index (see `ensureDaemonClient`). */
+/** Default: stdio MCP; indexer daemon is separate — connect only if already running (no auto-start). */
 async function runMcpWithSharedDaemon(config: AppConfig): Promise<void> {
-  logInfo('mcp', `stdio MCP starting (mode: shared daemon; search/stats=local LanceDB; reindex=IPC)`);
-  const client = await ensureDaemonClient(config);
+  logInfo('mcp', `stdio MCP starting (mode: shared index; search/stats=local LanceDB; reindex=IPC if daemon is up)`);
+  const client = await tryConnectDaemonClient(config);
+  if (client) {
+    logInfo('mcp', 'connected to indexer daemon for reindex (IPC ok)');
+  } else {
+    logInfo('mcp', `indexer daemon not running — codebase_reindex will suggest: ${DAEMON_REINDEX_HOWTO}`);
+  }
   const store = new ChunkStore(config.lanceDirAbs, config.embeddingDim);
   logInfo('mcp', 'opening LanceDB read-only (connect + open table if present)…');
   await store.initReadOnly();
@@ -75,8 +85,7 @@ async function main(): Promise<void> {
   registerFatalProcessLogging();
 
   if (argvHasDaemonFlag()) {
-    logInfo('daemon', 'indexer daemon process (--daemon)');
-    await runIndexingDaemon(config);
+    await runDaemonCliMain();
     return;
   }
   if (noDaemonEnv()) {

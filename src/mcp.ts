@@ -54,14 +54,20 @@ export function createLocalMcpBackend(
   };
 }
 
+export const DAEMON_REINDEX_HOWTO =
+  'The indexer daemon is not running, so reindex is unavailable. ' +
+  'In a terminal, with CODEBASE_MCP_ROOT (and optional CODEBASE_MCP_INDEX_DIR) set to the same values as the MCP, run: ' +
+  'npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon';
+
 /**
  * Default MCP mode: search + stats run locally (LanceDB read + local query embedding);
- * only `codebase_reindex` is sent to the indexing daemon (sole writer / watcher).
+ * `codebase_reindex` uses the daemon IPC if a client was connected at startup; otherwise
+ * reindex returns instructions to start the daemon manually.
  */
 export function createSharedDaemonMcpBackend(
   config: AppConfig,
   store: ChunkStore,
-  client: DaemonClient,
+  client: DaemonClient | null,
 ): CodebaseMcpBackend {
   const mapError = (error: string): ToolResult => ({
     content: [{ type: 'text' as const, text: `Daemon error: ${error}` }],
@@ -70,6 +76,9 @@ export function createSharedDaemonMcpBackend(
     codebase_search: (args) => runCodebaseSearch(config, store, args),
     codebase_stats: () => runCodebaseStatsFromStore(config, store),
     codebase_reindex: async (args) => {
+      if (!client) {
+        return { content: [{ type: 'text' as const, text: DAEMON_REINDEX_HOWTO }] };
+      }
       const resp = await client.call('reindex', args);
       if (!resp.ok) {
         return mapError(resp.error);
@@ -90,7 +99,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR). A background indexer daemon is the only writer.',
+        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to codebase-mcp/db/<repo>/ (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB.',
       inputSchema: {
         query: z.string().min(1).describe('Natural language search query'),
         limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),
@@ -116,7 +125,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_reindex',
     {
       description:
-        'Reindex the repository. Omit path to run a full reconcile (scan disk, remove stale paths, reindex changed files).',
+        'Reindex the repository (requires the indexer daemon to be running — start it manually with the codebase-mcp-daemon npx command from the README; same env as MCP). Omit path for full reconcile.',
       inputSchema: {
         path: z
           .string()

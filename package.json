@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/main.js",
   "bin": {
-    "codebase-mcp": "dist/main.js"
+    "codebase-mcp": "dist/main.js",
+    "codebase-mcp-daemon": "dist/daemon-entry.js"
   },
   "files": [
     "dist",
@@ -14,10 +15,11 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
+    "daemon": "node dist/daemon-entry.js",
     "prestart": "npm run build",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm run typecheck",
-    "ps": "ps auxww | grep node | grep codebase_mcp",
+    "ps": "ps auxww | grep node | grep dist | grep \\.js$",
     "push-npm-package": "npm run build && npm run typecheck && npm version patch && npm publish"
   },
   "keywords": [

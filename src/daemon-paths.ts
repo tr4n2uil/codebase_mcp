@@ -16,7 +16,3 @@ export function getDaemonListenPath(indexDirAbs: string): string {
   }
   return path.join(daemonStateDir(indexDirAbs), 'socket');
 }
-
-export function spawnLockPath(indexDirAbs: string): string {
-  return path.join(daemonStateDir(indexDirAbs), 'spawn.lock');
-}

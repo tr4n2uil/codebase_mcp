@@ -1,6 +1,6 @@
 {
   "name": "@tr4n2uil/codebase-mcp",
-  "version": "1.0.46",
+  "version": "1.0.47",
   "description": "Cursor for Claude Code: Local vector index + MCP server for codebase semantic search (TypeScript, Xenova transformers, LanceDB)",
   "type": "module",
   "main": "dist/main.js",
@@ -11,8 +11,7 @@
   },
   "files": [
     "dist",
-    "README.md",
-    "scripts/ripper_definitions.rb"
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -47,6 +46,14 @@
     "@xenova/transformers": "^2.17.2",
     "chokidar": "^5.0.0",
     "ignore": "^7.0.5",
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-go": "^0.23.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-python": "^0.23.0",
+    "tree-sitter-ruby": "^0.20.0",
+    "tree-sitter-rust": "^0.20.0",
+    "tree-sitter-typescript": "^0.23.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {

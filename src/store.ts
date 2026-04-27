@@ -134,7 +134,7 @@ export class ChunkStore {
     }
     const table = this.requireTable();
     const schema = await table.schema();
-    const names = schema.fields.map((f) => f.name);
+    const names = schema.fields.map((f: { name: string }) => f.name);
     if (names.includes('definition_of')) {
       return;
     }

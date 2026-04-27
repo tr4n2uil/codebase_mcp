@@ -78,10 +78,8 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_USE_POLLING` | `true` | **Daemon** | Polling vs native `fs.watch` for the watcher. |
 | `CODEBASE_MCP_POLL_MS` | `2000` | **Daemon** | Polling interval. |
 | `CODEBASE_MCP_CODE_AWARE_CHUNKING` | `true` | **Daemon** | Symbol-aware chunking when indexing. |
-| `CODEBASE_MCP_RUBY_DEF_ENGINE` | `auto` | **Daemon** | Ruby declarations: `auto` (MRI **Ripper** via `ruby` + `scripts/ripper_definitions.rb` when available, else regex), `ripper` (always try Ripper; fall back to regex on error), `regex` (line patterns only). **Reindex** after changes. |
-| `CODEBASE_MCP_RUBY` | `ruby` | **Daemon** | Ruby executable for Ripper (path to `ruby`). |
-| `CODEBASE_MCP_RUBY_RIPPER_MAX_BYTES` | `524288` | **Daemon** | Skip Ripper for `.rb` / `.rake` / `.rbi` sources larger than this (use regex only). |
-| `CODEBASE_MCP_RUBY_RIPPER_TIMEOUT_MS` | `10000` | **Daemon** | Wall-clock timeout per file for the Ripper subprocess. |
+| `CODEBASE_MCP_DEF_ENGINE` | `auto` | **Daemon** | How to find declaration boundaries: `auto` / `tree_sitter` = native **tree-sitter** (TS/JS, Python, Ruby, Go, Java, Rust) merged with line-regex on non-overlapping lines; `regex` = line heuristics only (no `npm` native build required). If the `tree-sitter` native add-on fails to load, the indexer falls back to regex. **Reindex** after changes. `CODEBASE_MCP_RUBY_DEF_ENGINE=regex` is still honored as an alias for `regex`. |
+| `CODEBASE_MCP_TREE_SITTER_MAX_BYTES` | `2097152` | **Daemon** | Do not run tree-sitter on a single file larger than this (bytes); use regex only for that file. |
 | `CODEBASE_MCP_RERANK` | `true` | **MCP** | Rerank search hits (after hybrid) with lexical/path heuristics in `codebase_search`. |
 | `CODEBASE_MCP_RERANK_CANDIDATES` | `100` | **MCP** | Candidate pool: fetch at least this many before rerank; also used as default for hybrid depth. |
 | `CODEBASE_MCP_HYBRID` | `true` | **MCP** | **Hybrid search**: combine LanceDB **BM25** (FTS on chunk `text`) and **vector** kNN with **RRF** (Lance’s `RRFReranker`). The FTS index is built by the **indexing daemon** (or `NO_DAEMON`); pure MCP with an old DB and no index falls back to vector-only automatically. Set `0` to disable. |

@@ -1,10 +1,8 @@
-import { createHash } from 'node:crypto';
 import { yieldToEventLoop } from './event-loop-yield.js';
 import type { AppConfig } from './config.js';
-import { atMostOneSymbolPerLine, mergeRipperWithRegex } from './declaration-merge.js';
+import { atMostOneSymbolPerLine, mergeAstWithRegex } from './declaration-merge.js';
 import type { SymbolSpan } from './chunker-symbols.js';
-import { ripperDefinitionsScriptPath } from './ripper-path.js';
-import { getRubyDefinitionSpansViaRipper, probeRubyAvailable } from './ruby-ripper.js';
+import { getDefinitionSpansFromTreeSitter } from './tree-sitter-definitions.js';
 
 export interface TextChunk {
   startLine: number;
@@ -135,22 +133,18 @@ export async function chunkByLines(
 
 export type { SymbolSpan } from './chunker-symbols.js';
 
-/** Indexing options for symbol detection (Ripper for Ruby, future tree-sitter for other langs). */
+/** Indexing options for symbol detection (native tree-sitter + regex merge). */
 export interface ChunkerOptions {
-  rubyDefEngine: 'regex' | 'ripper' | 'auto';
-  rubyRipperMaxBytes: number;
-  rubyRipperTimeoutMs: number;
-  ripperScriptPath: string;
-  rubyExecutable: string;
+  /** `auto` / `tree_sitter` use `tree-sitter` when the native module loads; merge with regex. `regex` = line heuristics only. */
+  defEngine: 'auto' | 'tree_sitter' | 'regex';
+  /** Skip in-process parse for very large single files. */
+  treeSitterMaxBytes: number;
 }
 
 export function buildChunkerOptions(config: AppConfig): ChunkerOptions {
   return {
-    rubyDefEngine: config.rubyDefEngine,
-    rubyRipperMaxBytes: config.rubyRipperMaxBytes,
-    rubyRipperTimeoutMs: config.rubyRipperTimeoutMs,
-    ripperScriptPath: ripperDefinitionsScriptPath(),
-    rubyExecutable: config.rubyExecutable,
+    defEngine: config.defEngine,
+    treeSitterMaxBytes: config.treeSitterMaxBytes,
   };
 }
 
@@ -324,25 +318,15 @@ async function extractSymbols(
   lines: string[],
   language: string,
   content: string,
+  filePath: string,
   options?: ChunkerOptions,
 ): Promise<SymbolSpan[]> {
   const regex = await extractSymbolsRegex(lines, language);
-  if (language !== 'ruby' || !options || options.rubyDefEngine === 'regex') {
+  if (!options || options.defEngine === 'regex') {
     return atMostOneSymbolPerLine(regex);
   }
-  if (!(await probeRubyAvailable(options.rubyExecutable))) {
-    return atMostOneSymbolPerLine(regex);
-  }
-  const contentHash = createHash('sha256').update(content, 'utf8').digest('hex');
-  const ripper = await getRubyDefinitionSpansViaRipper({
-    content,
-    contentHash,
-    ruby: options.rubyExecutable,
-    scriptPath: options.ripperScriptPath,
-    maxBytes: options.rubyRipperMaxBytes,
-    timeoutMs: options.rubyRipperTimeoutMs,
-  });
-  return atMostOneSymbolPerLine(mergeRipperWithRegex(ripper, regex));
+  const ast = await getDefinitionSpansFromTreeSitter(filePath, content, options.treeSitterMaxBytes);
+  return atMostOneSymbolPerLine(mergeAstWithRegex(ast, regex));
 }
 
 function sliceText(lines: string[], startLine: number, endLine: number): string {
@@ -390,7 +374,7 @@ export async function chunkCodeAware(
     return [];
   }
   const language = detectLanguage(filePath);
-  const symbols = await extractSymbols(lines, language, content, options);
+  const symbols = await extractSymbols(lines, language, content, filePath, options);
   if (symbols.length === 0) {
     const raw = await chunkByLinesFromLinesWithYields(lines, chunkLines, overlapLines);
     return raw.map((c) => ({ ...c, language }));

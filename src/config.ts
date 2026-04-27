@@ -111,16 +111,12 @@ export interface AppConfig {
    */
   embedDefTagInChunk: boolean;
   /**
-   * Ruby declaration detection: `regex` (line patterns), `ripper` (MRI Ripper subprocess; falls back to
-   * regex on failure), `auto` (Ripper when `ruby` is on PATH and `scripts/ripper_definitions.rb` exists).
+   * Definition detection for code-aware chunking: `regex` (line heuristics), `tree_sitter` / `auto`
+   * (native `tree-sitter` when installed; merge with regex per line; falls back to regex if native load fails).
    */
-  rubyDefEngine: 'regex' | 'ripper' | 'auto';
-  /** Skip Ripper for Ruby files larger than this (bytes); use regex only. */
-  rubyRipperMaxBytes: number;
-  /** Ripper subprocess wall-clock timeout per file (ms). */
-  rubyRipperTimeoutMs: number;
-  /** Ruby executable for Ripper (default `ruby`). Override with `CODEBASE_MCP_RUBY`. */
-  rubyExecutable: string;
+  defEngine: 'auto' | 'tree_sitter' | 'regex';
+  /** Do not run tree-sitter parse on files larger than this (bytes). */
+  treeSitterMaxBytes: number;
   /** Log every indexed file path (can be noisy on large repos). */
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
@@ -269,16 +265,19 @@ export function loadConfig(): AppConfig {
   const testPathQueryBoost = parseBool(process.env.CODEBASE_MCP_TEST_PATH_QUERY_BOOST, true);
   const frontendPathQueryBoost = parseBool(process.env.CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST, true);
   const embedDefTagInChunk = parseBool(process.env.CODEBASE_MCP_EMBED_DEF_TAG, false);
-  const rawRubyEngine = process.env.CODEBASE_MCP_RUBY_DEF_ENGINE?.trim().toLowerCase() ?? '';
-  const rubyDefEngine: 'regex' | 'ripper' | 'auto' =
-    rawRubyEngine === 'regex' || rawRubyEngine === 'ripper' || rawRubyEngine === 'auto'
-      ? (rawRubyEngine as 'regex' | 'ripper' | 'auto')
-      : 'auto';
-  const rawRubyMax = Number.parseInt(process.env.CODEBASE_MCP_RUBY_RIPPER_MAX_BYTES || '524288', 10);
-  const rubyRipperMaxBytes = Number.isFinite(rawRubyMax) && rawRubyMax >= 4096 ? rawRubyMax : 524288;
-  const rawRubyTimeout = Number.parseInt(process.env.CODEBASE_MCP_RUBY_RIPPER_TIMEOUT_MS || '10000', 10);
-  const rubyRipperTimeoutMs = Number.isFinite(rawRubyTimeout) && rawRubyTimeout >= 500 ? rawRubyTimeout : 10_000;
-  const rubyExecutable = process.env.CODEBASE_MCP_RUBY?.trim() || 'ruby';
+  const rawDefEngine = process.env.CODEBASE_MCP_DEF_ENGINE?.trim().toLowerCase() ?? '';
+  const legacyRuby = process.env.CODEBASE_MCP_RUBY_DEF_ENGINE?.trim().toLowerCase() ?? '';
+  const defEngine: 'auto' | 'tree_sitter' | 'regex' = (() => {
+    if (rawDefEngine === 'regex' || rawDefEngine === 'tree_sitter' || rawDefEngine === 'auto') {
+      return rawDefEngine;
+    }
+    if (legacyRuby === 'regex') {
+      return 'regex';
+    }
+    return 'auto';
+  })();
+  const rawTsMax = Number.parseInt(process.env.CODEBASE_MCP_TREE_SITTER_MAX_BYTES || '2097152', 10);
+  const treeSitterMaxBytes = Number.isFinite(rawTsMax) && rawTsMax >= 65_536 ? rawTsMax : 2_097_152;
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
@@ -328,10 +327,8 @@ export function loadConfig(): AppConfig {
     testPathQueryBoost,
     frontendPathQueryBoost,
     embedDefTagInChunk,
-    rubyDefEngine,
-    rubyRipperMaxBytes,
-    rubyRipperTimeoutMs,
-    rubyExecutable,
+    defEngine,
+    treeSitterMaxBytes,
     logIndexEachFile,
     logMcpTools,
     ortUnlimited,

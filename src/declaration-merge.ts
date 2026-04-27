@@ -1,20 +1,20 @@
 import type { SymbolSpan } from './chunker-symbols.js';
 
 /**
- * AST/Ripper wins per-line: if Ripper has any span on a line, regex spans on that line are dropped.
+ * tree-sitter/AST wins per-line: if the AST has any span on a line, regex spans on that line are dropped.
  * Then concat, sort, dedupe by (startLine, name). Keeps a stable order for code-aware chunking.
  */
-export function mergeRipperWithRegex(ripper: SymbolSpan[], regex: SymbolSpan[]): SymbolSpan[] {
-  if (ripper.length === 0) {
+export function mergeAstWithRegex(ast: SymbolSpan[], regex: SymbolSpan[]): SymbolSpan[] {
+  if (ast.length === 0) {
     return dedupeByLineAndName(regex);
   }
-  const ripperLines = new Set(ripper.map((r) => r.startLine));
-  const filtered = regex.filter((r) => !ripperLines.has(r.startLine));
-  return dedupeByLineAndName([...ripper, ...filtered]);
+  const astLines = new Set(ast.map((r) => r.startLine));
+  const filtered = regex.filter((r) => !astLines.has(r.startLine));
+  return dedupeByLineAndName([...ast, ...filtered]);
 }
 
 /**
- * Code-aware chunking requires at most one “anchor” per line. If Ripper/regex list multiple
+ * Code-aware chunking requires at most one “anchor” per line. If AST/regex list multiple
  * declarations on the same line (e.g. `module M; class C; end; end`), keep the **last** in sort order
  * (name/kind) so the inner struct wins over the outer.
  */

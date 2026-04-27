@@ -272,7 +272,7 @@ export class Indexer {
       `${rel}${this.fullScanFileProgress(source)}  [chunking done: ${chunks.length} chunk(s) — next: load embed model if first use, then run inference]`,
     );
     const extractor = await getEmbedder(this.config);
-    const batchSize = 8;
+    const batchSize = this.config.embedBatchSize;
     const totalBatches = Math.max(1, Math.ceil(chunks.length / batchSize));
     logInfo(
       'indexer',

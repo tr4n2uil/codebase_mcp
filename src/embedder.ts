@@ -10,9 +10,17 @@ export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
   if (!extractorPromise) {
     logInfo('embedder', `loading ${config.embeddingModel} (first use; may download/cache)…`);
     extractorPromise = pipeline('feature-extraction', config.embeddingModel)
-      .then((p) => {
+      .then(async (p) => {
+        const ex = p as FeatureExtractor;
+        // First real run compiles/optimizes the ONNX graph; without this, the pause happens on the first indexer batch and looks "stuck".
+        logInfo(
+          'embedder',
+          'warmup: first ONNX run (graph compile; on CPU this often takes 1–10+ minutes, high usage is expected)…',
+        );
+        const warm = Array.from({ length: Math.min(8, Math.max(1, config.embedBatchSize)) }, () => 'x');
+        await withInferencePendingLogs('warmup', ex(warm, { pooling: 'mean', normalize: true }));
         logInfo('embedder', `ready: ${config.embeddingModel}`);
-        return p as FeatureExtractor;
+        return ex;
       })
       .catch((e) => {
         logError('embedder', `failed to load ${config.embeddingModel}`, e);
@@ -50,6 +58,22 @@ function tensorToVectors(tensor: { data: Float32Array; dims?: number[] }, expect
   throw new Error(`Unexpected embedding tensor shape: dims=${JSON.stringify(dims)} len=${data.length}`);
 }
 
+const HEARTBEAT_MS = 20_000;
+
+function withInferencePendingLogs<T>(label: string, p: Promise<T>): Promise<T> {
+  const t0 = Date.now();
+  const id = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    logInfo(
+      'embedder',
+      `… still in ${label} (${s}s) — not frozen; set CODEBASE_MCP_EMBED_BATCH_SIZE=1 for smaller steps`,
+    );
+  }, HEARTBEAT_MS);
+  return p.finally(() => {
+    clearInterval(id);
+  });
+}
+
 export async function embedTexts(
   extractor: FeatureExtractor,
   texts: string[],
@@ -63,6 +87,9 @@ export async function embedTexts(
     'embedder',
     `inference: ${texts.length} input(s), ~${(inputChars / 1024).toFixed(0)} KiB text (this can take a while; high CPU is normal)…`,
   );
-  const tensor = await extractor(texts, { pooling: 'mean', normalize: true });
+  const tensor = await withInferencePendingLogs(
+    'batch inference',
+    extractor(texts, { pooling: 'mean', normalize: true }),
+  );
   return tensorToVectors(tensor, expectedDim);
 }

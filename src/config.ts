@@ -28,6 +28,8 @@ export interface AppConfig {
   metaPathAbs: string;
   embeddingModel: string;
   embeddingDim: number;
+  /** Chunks per embedding call (1–32). Smaller = more progress logs, less RAM per op; CPU can still be slow. */
+  embedBatchSize: number;
   chunkLines: number;
   chunkOverlapLines: number;
   maxFileBytes: number;
@@ -80,6 +82,8 @@ export function loadConfig(): AppConfig {
   const metaPathAbs = path.join(indexDirAbs, 'meta.json');
   const embeddingModel = process.env.CODEBASE_MCP_EMBEDDING_MODEL?.trim() || DEFAULT_MODEL;
   const embeddingDim = Number.parseInt(process.env.CODEBASE_MCP_EMBEDDING_DIM || '', 10);
+  const rawBatch = Number.parseInt(process.env.CODEBASE_MCP_EMBED_BATCH_SIZE || '4', 10);
+  const embedBatchSize = Math.min(32, Math.max(1, Number.isFinite(rawBatch) ? rawBatch : 4));
   const pollingEnv = process.env.CODEBASE_MCP_USE_POLLING?.trim().toLowerCase();
   const usePolling =
     pollingEnv === undefined || pollingEnv === ''
@@ -102,6 +106,7 @@ export function loadConfig(): AppConfig {
     metaPathAbs,
     embeddingModel,
     embeddingDim: Number.isFinite(embeddingDim) ? embeddingDim : DEFAULT_EMBEDDING_DIM,
+    embedBatchSize,
     chunkLines: Number.parseInt(process.env.CODEBASE_MCP_CHUNK_LINES || '60', 10) || 60,
     chunkOverlapLines: Number.parseInt(process.env.CODEBASE_MCP_CHUNK_OVERLAP || '12', 10) || 12,
     maxFileBytes: Number.parseInt(process.env.CODEBASE_MCP_MAX_FILE_BYTES || `${5 * 1024 * 1024}`, 10) || 5 * 1024 * 1024,

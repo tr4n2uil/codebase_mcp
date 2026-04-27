@@ -22,7 +22,7 @@ export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
 node dist/main.js
 ```
 
-**Process model (default):** the stdio process is a thin **MCP client**. It connects to a **single indexing daemon** per `CODEBASE_MCP_INDEX_DIR` (Unix domain socket or Windows named pipe under `<index>/.codebase-mcp-daemon/`). If nothing is listening, it acquires a short-lived spawn lock, starts `node dist/main.js --daemon` detached, then talks to that daemon so **only one watcher + one reconcile loop** run for that index. You can still start the daemon yourself (same env as MCP):
+**Process model (default):** the stdio process is a thin **MCP client**. It connects to a **single indexing daemon** per `CODEBASE_MCP_INDEX_DIR` (Unix domain socket or Windows named pipe under `.codebase-mcp-daemon/`). If nothing is listening, it acquires a short-lived spawn lock, starts `node dist/main.js --daemon` detached, then talks to that daemon so **only one watcher + one reconcile loop** run for that index. You can still start the daemon yourself (same env as MCP):
 
 ```bash
 export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo

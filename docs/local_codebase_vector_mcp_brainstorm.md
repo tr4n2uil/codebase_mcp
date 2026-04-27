@@ -31,9 +31,9 @@
 
 1. Resolves config from **`CODEBASE_MCP_ROOT`** / **`CODEBASE_MCP_INDEX_DIR`** (same as the daemon).
 2. **Pings** the daemon on a transport keyed by the index directory:
-   - **Unix:** socket at **`<CODEBASE_MCP_INDEX_DIR>/.codebase-mcp-daemon/socket`**
+   - **Unix:** socket at **`.codebase-mcp-daemon/socket`**
    - **Windows:** named pipe **`\\.\pipe\codebase-mcp-<sha256(indexDir)>`** (short hash prefix)
-3. If nothing answers: acquires **`spawn.lock`** under **`<index>/.codebase-mcp-daemon/`**, optionally removes a **stale Unix socket**, then **`spawn`s** `node dist/main.js --daemon` **detached** (`stdio: 'ignore'` for the child), waits until **ping** succeeds, then connects.
+3. If nothing answers: acquires **`spawn.lock`** under **`.codebase-mcp-daemon/`**, optionally removes a **stale Unix socket**, then **`spawn`s** `node dist/main.js --daemon` **detached** (`stdio: 'ignore'` for the child), waits until **ping** succeeds, then connects.
 4. Serves MCP tools by sending **NDJSON** requests over that connection (`ping`, `search`, `stats`, `reindex`) and returning results. **Embeddings for search** run inside the daemon so the model is not loaded per MCP session.
 
 **Daemon process (`node dist/main.js --daemon`):** Owns exactly one indexing pipeline per **`CODEBASE_MCP_INDEX_DIR`**:

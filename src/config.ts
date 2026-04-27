@@ -76,6 +76,16 @@ export interface AppConfig {
   /** Min relative (top−2nd)/|top| to treat top as clearly separated. */
   searchMatchMinGap: number;
   /**
+   * When true, **high** `match_confidence` may be downgraded to **medium** for short identifier-like
+   * queries. Disable with `CODEBASE_MCP_MATCH_CONF_AMBIG_LIT=0`.
+   */
+  matchConfAmbiguousLiteralDowngrade: boolean;
+  /**
+   * When true, **high** may be downgraded when top-2 hits are different file-type families (e.g. Ruby vs
+   * TS/JS). Disable with `CODEBASE_MCP_MATCH_CONF_XDOMAIN_EXT=0`.
+   */
+  matchConfTopPathFamilyDivergence: boolean;
+  /**
    * When true and the query looks like a definition request (“where is X defined?”), boost chunks
    * whose `definition_of` metadata matches. Requires code-aware reindex. Disable with
    * `CODEBASE_MCP_DEF_BOOST=0`.
@@ -83,6 +93,17 @@ export interface AppConfig {
   definitionBoostEnabled: boolean;
   /** Additive path prior in rerank when `definition_of` matches parsed symbol (0–0.5). */
   definitionBoost: number;
+  /**
+   * When true, queries that mention test/spec/jest/etc. *boost* `spec/`, `test/`, `__tests__` paths
+   * in the reranker instead of de-prioritizing them. Set `CODEBASE_MCP_TEST_PATH_QUERY_BOOST=0` to always
+   * use the legacy demotion for those paths.
+   */
+  testPathQueryBoost: boolean;
+  /**
+   * When true, queries that look UI/React/TS-oriented **boost** common frontend path shapes (e.g. `.tsx`,
+   * `components/`, `app/javascript/`). `CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST=0` disables.
+   */
+  frontendPathQueryBoost: boolean;
   /** Log every indexed file path (can be noisy on large repos). */
   logIndexEachFile: boolean;
   /** Log each MCP tool invocation to stderr. */
@@ -208,6 +229,14 @@ export function loadConfig(): AppConfig {
   if (searchMatchStrongAbove <= searchMatchWeakBelow) {
     searchMatchStrongAbove = searchMatchWeakBelow + 0.01;
   }
+  const matchConfAmbiguousLiteralDowngrade = parseBool(
+    process.env.CODEBASE_MCP_MATCH_CONF_AMBIG_LIT,
+    true,
+  );
+  const matchConfTopPathFamilyDivergence = parseBool(
+    process.env.CODEBASE_MCP_MATCH_CONF_XDOMAIN_EXT,
+    true,
+  );
   const definitionBoostEnabled = parseBool(process.env.CODEBASE_MCP_DEF_BOOST, true);
   const rawDefStr = process.env.CODEBASE_MCP_DEF_STRENGTH?.trim() ?? '';
   const definitionBoost = (() => {
@@ -220,6 +249,8 @@ export function loadConfig(): AppConfig {
     }
     return Math.min(0.5, n);
   })();
+  const testPathQueryBoost = parseBool(process.env.CODEBASE_MCP_TEST_PATH_QUERY_BOOST, true);
+  const frontendPathQueryBoost = parseBool(process.env.CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST, true);
   const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
   const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   const ortUnlimited = parseBool(process.env.CODEBASE_MCP_ORT_UNLIMITED, false);
@@ -262,8 +293,12 @@ export function loadConfig(): AppConfig {
     searchMatchWeakBelow,
     searchMatchStrongAbove,
     searchMatchMinGap,
+    matchConfAmbiguousLiteralDowngrade,
+    matchConfTopPathFamilyDivergence,
     definitionBoostEnabled,
     definitionBoost,
+    testPathQueryBoost,
+    frontendPathQueryBoost,
     logIndexEachFile,
     logMcpTools,
     ortUnlimited,

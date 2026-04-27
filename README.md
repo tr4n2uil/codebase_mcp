@@ -97,8 +97,12 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_MATCH_CONF_WEAK` | `0.35` if `CODEBASE_MCP_RERANK` is on, else `0.18` | **MCP** | Primary score (rerank or retriever) below this → `low` confidence. |
 | `CODEBASE_MCP_MATCH_CONF_STRONG` | `0.55` (rerank on) or `0.4` (off) | **MCP** | Primary score at/above this can contribute to `high` (with enough top-1 vs top-2 gap). If ≤ weak, strong is raised to weak + 0.01. |
 | `CODEBASE_MCP_MATCH_CONF_GAP` | `0.05` (rerank on) or `0.06` (off) | **MCP** | Minimum relative (top1−top2)/|top1| to treat the leader as “clear” for `high`. |
+| `CODEBASE_MCP_MATCH_CONF_AMBIG_LIT` | `true` | **MCP** | When `high` would be returned, **downgrade to `medium`** for very short identifier-like queries (`CODEBASE_MCP_MATCH_CONFIDENCE` on). Adds `possible_ambiguous_literal_query` to reasons. Set `0` to skip. |
+| `CODEBASE_MCP_MATCH_CONF_XDOMAIN_EXT` | `true` | **MCP** | When `high` would be returned, **downgrade to `medium`** if top-1 and top-2 paths are different *families* (e.g. `.rb` vs `.ts`/`.tsx`). Adds `top_hits_different_path_families`. Set `0` to skip. |
 | `CODEBASE_MCP_DEF_BOOST` | `true` | **MCP** | When true, “definition-intent” queries (e.g. *where is `Foo` defined?*) boost chunks that **declare** that symbol (heuristic, code-aware indexing). Set `0` to disable. |
 | `CODEBASE_MCP_DEF_STRENGTH` | `0.18` | **MCP** | Additive rerank “path prior” for matching `definition_of` (clamped 0–0.5; `0` = no extra boost). |
+| `CODEBASE_MCP_TEST_PATH_QUERY_BOOST` | `true` | **MCP** | When the query looks test/spec–oriented (e.g. *spec*, *RSpec*, *Jest*), **boost** `spec/`, `test/`, `__tests__` in rerank instead of de-prioritizing them. Set `0` to always use the legacy demotion for those paths. |
+| `CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST` | `true` | **MCP** | When the query looks UI/React/TS–oriented, **boost** common frontend paths (e.g. `.tsx`, `components/`, `app/javascript/`). Set `0` to disable. |
 | `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
 | `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
 | `CODEBASE_MCP_FORCE_INCLUDE` | `.claude/docs` | **Daemon** | Comma- or newline-separated **repo-relative** paths indexed even if `.gitignore` would skip them. Default alone includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra includes). **Not used for search**; set on the **daemon** env (or the single process when `CODEBASE_MCP_NO_DAEMON=1`). |

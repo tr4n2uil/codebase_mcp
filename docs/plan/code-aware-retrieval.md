@@ -10,8 +10,18 @@ High-ROI improvements for **semantic search over code** (same embedding model ca
 | **Query expansion** — NL → code aliases / symbol forms | Medium | **Not started** | Queries are embedded **as-is** in **`src/mcp-tools.ts`** / **`embedder.ts`**. No alias tables or expansion step. |
 | **Path / language filtering** | Medium | **Partial** | **`codebase_search`** supports **`path_prefix`** (POSIX path under repo root) — see **`src/mcp.ts`**, applied in **`src/store.search()`** / **`mcp-tools.ts`**. Chunks store **`path`**; embedding tags include inferred **`lang`** from extension — **no** `language` or glob filter on the search tool (e.g. `*.ts` must be approximated via prefix or future work). **Related:** `CODEBASE_MCP_INDEX_EXCLUDE` (daemon) skips paths from the index, not a query-time filter. |
 | **Result confidence / weak match signal** | Medium | **Done (heuristic)** | **`src/search-confidence.ts`**: `assessSearchMatchQuality` on the final top-`limit` list; MCP JSON includes `match_confidence`, `match_confidence_reasons`, `match_confidence_hint`, `top_primary_score`, `top_relative_separation`. Toggle: `CODEBASE_MCP_MATCH_CONFIDENCE`; thresholds: `CODEBASE_MCP_MATCH_CONF_WEAK` / `STRONG` / `GAP` (defaults differ when `CODEBASE_MCP_RERANK` is on). **Not a guarantee** of correctness — informs agents when the top score is weak or top results are close. |
-| **Cross-domain / literal disambiguation** (same token in many contexts) | Medium | **Not started** | Current reranker is fusion + heuristics; ambiguous literals still cluster by embedding similarity. Likely needs **stronger reranking** (e.g. small cross-encoder on top-K) and/or **query refinement** (expansion, entity/code-path hints) — see *Suggested next steps*. |
-| **Definition vs usage** — boost canonical definition for “where is X defined?” | Big | **Partial (heuristic)** | **`src/chunker.ts`**: `definitionOf` on chunks that **start** at a regex-detected symbol line. **TS/JS:** `function`, `class`, `interface` / `type` / `enum`. **Ruby** (`.rb` / `.rake` / `.rbi`): `def` / `def self.`, `class`, `module` (see `detectLanguage` + `extractSymbols`). **`src/definition-intent.ts`**: e.g. *“where is the Foo **class** defined?”* and *“… **method** / **module** defined?”* for natural phrasing. **`src/rerank.ts`**: path prior when `definition_of` matches. Toggles: `CODEBASE_MCP_DEF_BOOST`, `CODEBASE_MCP_DEF_STRENGTH`. **Still open:** Ruby metaprogramming / `define_method`, TS re-exports, etc.; **reindex** after chunker changes. |
+| **Cross-domain / literal disambiguation** (same token in many contexts) | Medium | **Partial** | Rerank + hybrid unchanged. **Match confidence (optional):** if a **high** was about to be reported, we may down-grade to **medium** for (a) *short single-token* queries, or (b) top-1 vs top-2 paths in *different* extension families (e.g. Ruby vs TS) — `CODEBASE_MCP_MATCH_CONF_AMBIG_LIT` / `..._XDOMAIN_EXT`. **Not** a full disambiguation model; use cross-encoder / query refinement for the rest. |
+| **Test/spec path intent** in rerank | Small | **Partial** | If the **query** mentions `test` / `spec` / RSpec / Jest / etc., **`src/rerank.ts`** *boosts* `spec/`, `test/`, `__tests__` (otherwise they stay de-prioritized for generic queries). Toggle: `CODEBASE_MCP_TEST_PATH_QUERY_BOOST`. **Not** `path_prefix`; **not** perfect intent detection (e.g. “no tests”). |
+| **Definition vs usage** — boost canonical definition for “where is X defined?” | Big | **Partial (heuristic)** | Regex `definition_of` in **`src/chunker.ts`**; **`src/definition-intent.ts`**; **`src/rerank.ts`**. **~30% gap (field review, Ruby):** *class* / *enum* / *struct* declaration sites that regex misses — **tree-sitter (or LSP) capture rules** for Ruby would address a large share of *“where is Y defined”* on real codebases. Reindex when chunker changes. |
+
+## Remaining gaps (field / review notes)
+
+Consolidated product gaps not fully solved by heuristics above:
+
+1. **Ruby (and similar) class / enum / struct declarations** — **Tree-sitter**-style (or LSP) capture rules for type-like definitions would close a large share (~30% in one review) of *“where is Y defined”* that regex+line windows miss. Overlaps the definition row; tracks **AST-backed** `definition_of` (or an index of declarations).
+2. **Spec vs prod ranking** — When the *query* clearly targets tests (spec, RSpec, Jest, etc.), we **boost** `spec/`, `test/`, `__tests__` in **`rerank.ts`** (see `CODEBASE_MCP_TEST_PATH_QUERY_BOOST`). This does *not* fix “production implementation vs spec” disambiguation when the query is silent — that still relies on `path_prefix` and embeddings.
+3. **Frontend (TS / React) vs backend (e.g. Ruby)** — **Vector + chunking** are shared; if embedder and chunk tags under-index UI idioms, **TS/React** queries can underperform vs Ruby in the same repo. Mitigations: better **path** / **ext** weighting, optional **`path_prefix`**, future **language** or **app** (e.g. `src/components/`) filter — not a single flag today.
+4. **Cross-domain literal + confidence** — When the **wrong** domain *wins* BM25/lexical **anchoring** on a shared name, the fused score can still be strong, so **match quality** can show **high** even when the answer is the wrong *kind* of hit. Fix path: second-stage rerank, query entity routing, and/or **confidence** rules for *tight* tops + **ambiguity** of short literals (see *Cross-domain* row and `search-confidence.ts` future work).
 
 ## Semantic retrieval vs grep
 
@@ -46,7 +56,7 @@ That improves “find the source of truth” without changing the fact that **gr
 - Definition intent: `src/definition-intent.ts`
 - Match quality: `src/search-confidence.ts`
 - Tool API: `src/mcp.ts` (`path_prefix`, `limit`)
-- Config: `src/config.ts` (e.g. `rerankCandidates`, `rerankEnabled`, `searchMatch*`, `codeAwareChunking`, `indexExcludeRelPosix`)
+- Config: `src/config.ts` (e.g. `rerankCandidates`, `rerankEnabled`, `searchMatch*`, `testPathQueryBoost`, `codeAwareChunking`, `indexExcludeRelPosix`)
 
 For end-to-end architecture (processes, diagrams, hybrid search flow), see **[`docs/architecture/README.md`](../architecture/README.md)**.
 
@@ -56,7 +66,8 @@ For end-to-end architecture (processes, diagrams, hybrid search flow), see **[`d
 2. **Rerank** — Tighter **symbol/path** features or a **small cross-encoder** on the top K after fusion (especially for **cross-domain literal** queries where the current heuristic reranker cannot separate domains).
 3. **Query** — Light expansion (synonyms, camelCase / snake_case flip) or a fixed **code** synonym list behind a flag; optional **one-shot query refinement** when `match_confidence` is low or top scores are tight.
 4. **API** — Optional **`lang` / `ext`** or **glob** filter on `codebase_search` for monorepos (complements `path_prefix`).
-5. **Definitions** — Deeper than regex: tree-sitter / LSP for re-exports, barrel files, and languages beyond current heuristics; refine `parseDefinitionIntentQuery` (see *Definition vs usage* above).
+5. **Definitions** — Deeper than regex: tree-sitter / LSP for re-exports, barrel files, **Ruby class/enum/struct** declaration capture, and languages beyond current heuristics; refine `parseDefinitionIntentQuery` (see *Definition vs usage* and *Remaining gaps* above).
+6. **Confidence** — Optional down-rank or extra `match_confidence_reason` when hybrid scores are **confident** but **lexical** anchoring may be on the wrong domain (short shared literal; see *Cross-domain* row).
 
 ---
 

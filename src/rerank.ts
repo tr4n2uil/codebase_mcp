@@ -96,7 +96,65 @@ function isSymbolIntentQuery(query: string, tokens: string[]): boolean {
   return /\b[A-Za-z]+[A-Z][A-Za-z0-9]*\b/.test(query);
 }
 
-function codePathPrior(path: string, symbolIntent: boolean): number {
+/** Repo-relative path looks like a test / spec / examples tree. */
+function isTestishPath(p: string): boolean {
+  return (
+    p.includes('/spec/') ||
+    p.startsWith('spec/') ||
+    p.includes('/test/') ||
+    p.startsWith('test/') ||
+    p.includes('__tests__')
+  );
+}
+
+/**
+ * Heuristic: user is likely asking *about* test/spec code (RSpec, minitest, Jest, etc.),
+ * so we *boost* `spec/`, `test/`, `__tests__` instead of the default de-prioritization.
+ */
+export function queryMentionsTestOrSpecContext(query: string): boolean {
+  return /\b(test|spec|rspec|minitest|pytest|jest|vitest|examples?|shoulda|factory_bot|capybara|vcr)\b/i.test(
+    query,
+  );
+}
+
+/**
+ * Heuristic: user is likely asking about UI / React / client-side / TS+JS frontends (vs e.g. Ruby-only
+ * app paths) — used to nudge `rerank` toward typical frontend file trees.
+ */
+export function queryMentionsFrontendContext(query: string): boolean {
+  return /\b(react|usestate|useeffect|usecallback|usememo|redux|zustand|next\.js|nextjs|jsbundle|components?|userouter|stimulus|webpack|vite|hotwire|turbo|tailwind|styled-?components?|framer|storybook|portal|navbar|dropdown|viewcomponent|shadcn|mui|chakra|jsx?|client[- ]?side|frontend|browser|typescript)\b/i.test(
+    query,
+  );
+}
+
+function isFrontendishPath(p: string): boolean {
+  const x = p.toLowerCase();
+  if (x.endsWith('.tsx') || x.endsWith('.jsx') || x.endsWith('.vue') || x.endsWith('.svelte')) {
+    return true;
+  }
+  return (
+    x.includes('/components/') ||
+    x.includes('/ui/') ||
+    x.includes('app/javascript') ||
+    x.includes('/app/javascript/') ||
+    x.startsWith('app/javascript/') ||
+    x.includes('/frontend/') ||
+    x.startsWith('frontend/') ||
+    x.includes('/client/') ||
+    x.startsWith('client/') ||
+    x.includes('/web/') ||
+    x.startsWith('web/') ||
+    x.includes('packages/ui') ||
+    x.includes('src/packs')
+  );
+}
+
+function codePathPrior(
+  path: string,
+  symbolIntent: boolean,
+  testPathQueryIntent: boolean,
+  frontendPathQueryIntent: boolean,
+): number {
   const p = path.toLowerCase();
   let prior = 0;
   if (
@@ -108,8 +166,10 @@ function codePathPrior(path: string, symbolIntent: boolean): number {
   ) {
     prior += 0.2;
   }
-  if (p.includes('/test/') || p.startsWith('test/') || p.includes('/spec/') || p.startsWith('spec/')) {
-    prior -= 0.12;
+  if (isTestishPath(p)) {
+    prior += testPathQueryIntent ? 0.12 : -0.12;
+  } else if (frontendPathQueryIntent && isFrontendishPath(p)) {
+    prior += 0.1;
   }
   if (p.includes('/fixtures/') || p.includes('/locales/') || p.includes('/assets/')) {
     prior -= symbolIntent ? 0.2 : 0.08;
@@ -149,7 +209,10 @@ function userPathDemote(
 export function rerankSearchHits(
   query: string,
   hits: SearchHit[],
-  pathDemote: Pick<AppConfig, 'rerankDemotePathSubstrings' | 'rerankDemotePerMatch'>,
+  pathDemote: Pick<
+    AppConfig,
+    'rerankDemotePathSubstrings' | 'rerankDemotePerMatch' | 'testPathQueryBoost' | 'frontendPathQueryBoost'
+  >,
   definition?: RerankDefinitionOptions,
 ): RerankedHit[] {
   const defTarget = definition?.definitionTarget;
@@ -157,6 +220,9 @@ export function rerankSearchHits(
   const queryTokens = tokenize(query);
   const symbolTokens = symbolLikeTokens(query, queryTokens);
   const symbolIntent = isSymbolIntentQuery(query, queryTokens);
+  const testPathQueryIntent = pathDemote.testPathQueryBoost && queryMentionsTestOrSpecContext(query);
+  const frontendPathQueryIntent =
+    pathDemote.frontendPathQueryBoost && queryMentionsFrontendContext(query);
   return hits
     .map((hit) => {
       const lexical = scoreLexicalMatch(queryTokens, hit.text);
@@ -171,7 +237,7 @@ export function rerankSearchHits(
             : 0
           : 0;
       const pathPrior =
-        codePathPrior(hit.path, symbolIntent) +
+        codePathPrior(hit.path, symbolIntent, testPathQueryIntent, frontendPathQueryIntent) +
         userPathDemote(hit.path, pathDemote.rerankDemotePathSubstrings, pathDemote.rerankDemotePerMatch) +
         defPrior;
       const rerankScore = symbolIntent

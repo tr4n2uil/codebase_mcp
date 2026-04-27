@@ -43,6 +43,8 @@ export async function runCodebaseSearch(
       {
         rerankDemotePathSubstrings: config.rerankDemotePathSubstrings,
         rerankDemotePerMatch: config.rerankDemotePerMatch,
+        testPathQueryBoost: config.testPathQueryBoost,
+        frontendPathQueryBoost: config.frontendPathQueryBoost,
       },
       { definitionTarget: defTarget, definitionBoost: defBoost },
     );
@@ -56,6 +58,9 @@ export async function runCodebaseSearch(
         weakBelow: config.searchMatchWeakBelow,
         strongAbove: config.searchMatchStrongAbove,
         minRelativeGap: config.searchMatchMinGap,
+        query: args.query,
+        matchConfAmbiguousLiteralDowngrade: config.matchConfAmbiguousLiteralDowngrade,
+        matchConfTopPathFamilyDivergence: config.matchConfTopPathFamilyDivergence,
       })
     : null;
   const body = JSON.stringify(

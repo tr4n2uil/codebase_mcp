@@ -12,8 +12,29 @@ import {
   runCodebaseReindex,
 } from './mcp-tools.js';
 import { DaemonClient } from './daemon-client.js';
+import { logInfo } from './log.js';
 
 type ToolResult = { content: McpTextContent[] };
+
+function wrapToolLogging(config: AppConfig, backend: CodebaseMcpBackend): CodebaseMcpBackend {
+  if (!config.logMcpTools) {
+    return backend;
+  }
+  return {
+    codebase_search: async (args) => {
+      logInfo('mcp', 'tool codebase_search');
+      return backend.codebase_search(args);
+    },
+    codebase_stats: async () => {
+      logInfo('mcp', 'tool codebase_stats');
+      return backend.codebase_stats();
+    },
+    codebase_reindex: async (args) => {
+      logInfo('mcp', `tool codebase_reindex path=${args.path ?? '(reconcile all)'}`);
+      return backend.codebase_reindex(args);
+    },
+  };
+}
 
 export interface CodebaseMcpBackend {
   codebase_search(args: { query: string; limit?: number; path_prefix?: string }): Promise<ToolResult>;
@@ -59,6 +80,7 @@ export function createSharedDaemonMcpBackend(
 }
 
 export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBackend): Promise<void> {
+  const b = wrapToolLogging(config, backend);
   const server = new McpServer({
     name: 'codebase-mcp',
     version: '1.0.0',
@@ -78,7 +100,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
           .describe('Only chunks whose path starts with this prefix (POSIX, relative to repo root)'),
       },
     },
-    async (args) => backend.codebase_search(args),
+    async (args) => b.codebase_search(args),
   );
 
   server.registerTool(
@@ -87,7 +109,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
       description: 'Statistics about the local vector index for the configured repository.',
       inputSchema: {},
     },
-    async () => backend.codebase_stats(),
+    async () => b.codebase_stats(),
   );
 
   server.registerTool(
@@ -102,9 +124,10 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
           .describe('Path to a file under the repo (absolute or relative to repo root)'),
       },
     },
-    async (args) => backend.codebase_reindex(args),
+    async (args) => b.codebase_reindex(args),
   );
 
   const transport = new StdioServerTransport();
+  logInfo('mcp', 'connecting stdio transport (waits for MCP client messages)');
   await server.connect(transport);
 }

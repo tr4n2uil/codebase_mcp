@@ -45,7 +45,7 @@
 
 **Inline mode (debug / single process):** Set **`CODEBASE_MCP_NO_DAEMON=1`** (or `true` / `yes`). One process runs **watcher + indexer + stdio MCP** together (legacy shape).
 
-**Logs:** Each process tees **stderr** to **`codebase_mcp/.logs/<pid>`** (under the package; gitignored) while still writing to the real stderr when attached—useful because an auto-spawned daemon’s stderr is otherwise discarded.
+**Logs:** **stderr** is tee’d to **`<indexDir>/.logs/mcp.log`** or **`daemon.log`** (same `indexDir` as `meta.json`, default `.../db/<repo>/`; `db/` is gitignored). Each file line is prefixed with **`[pid=…] `**; one log file per role (MCP vs daemon), not one file per process id. Still writes to the real stderr when attached—useful because an auto-spawned daemon’s stderr is otherwise discarded.
 
 **Scope:** One daemon instance per **index directory**; different **`CODEBASE_MCP_INDEX_DIR`** values get independent daemons and sockets.
 

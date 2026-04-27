@@ -14,6 +14,7 @@ import {
 } from './path-filters.js';
 import { isCoveredByForceInclude } from './force-include.js';
 import { isIgnored, normalizeIgnorePath } from './gitignore.js';
+import { logError, logInfo } from './log.js';
 import type { ChunkRow } from './store.js';
 import { ChunkStore } from './store.js';
 
@@ -74,6 +75,8 @@ async function walkFiles(
 export class Indexer {
   private chain: Promise<void> = Promise.resolve();
   private meta: MetaFile;
+  /** Count of files successfully re-indexed in the current pass (for progress logging). */
+  private indexPassCount = 0;
 
   constructor(
     private readonly config: AppConfig,
@@ -85,9 +88,11 @@ export class Indexer {
   }
 
   private enqueue(fn: () => Promise<void>): void {
-    this.chain = this.chain.then(fn).catch((error) => {
-      console.error('[codebase-mcp] indexer error:', error);
-    });
+    this.chain = this.chain
+      .then(fn)
+      .catch((error) => {
+        logError('indexer', 'indexing task failed', error);
+      });
   }
 
   private async persistMeta(): Promise<void> {
@@ -109,19 +114,23 @@ export class Indexer {
     try {
       st = await fs.stat(absPath);
     } catch {
-      await this.removeRelativePath(rel);
+      await this.removeRelativePath(rel, { silent: true });
       return;
     }
     if (!st.isFile()) {
       return;
     }
     if (st.size > this.config.maxFileBytes) {
+      if (this.config.logIndexEachFile) {
+        logInfo('indexer', `skip (too large, ${st.size} bytes): ${rel}`);
+      }
       return;
     }
     let content: string;
     try {
       content = await fs.readFile(absPath, 'utf8');
-    } catch {
+    } catch (e) {
+      logError('indexer', `read failed, skipping: ${rel}`, e);
       return;
     }
     const hash = sha256Hex(content);
@@ -165,9 +174,18 @@ export class Indexer {
     this.meta.fileHashes[rel] = hash;
     this.meta.lastFullScanAt = new Date().toISOString();
     await this.persistMeta();
+    this.indexPassCount += 1;
+    if (this.config.logIndexEachFile) {
+      logInfo('indexer', `indexed ${rel} (${chunks.length} chunk${chunks.length === 1 ? '' : 's'})`);
+    } else if (this.indexPassCount % 25 === 0) {
+      logInfo('indexer', `progress: ${this.indexPassCount} file(s) re-indexed in this pass (last: ${rel})`);
+    }
   }
 
-  async removeRelativePath(relPosix: string): Promise<void> {
+  async removeRelativePath(relPosix: string, options?: { silent?: boolean }): Promise<void> {
+    if (!options?.silent) {
+      logInfo('indexer', `remove from index: ${relPosix}`);
+    }
     delete this.meta.fileHashes[relPosix];
     await this.store.deleteByPath(relPosix);
     await this.persistMeta();
@@ -191,10 +209,13 @@ export class Indexer {
       this.ig,
       this.config.forceIncludeRelPosix,
     );
+    this.indexPassCount = 0;
+    logInfo('indexer', `full scan: queuing ${files.length} file(s) under ${this.config.watchRootAbs}`);
     for (const abs of files) {
       this.scheduleIndexFile(abs);
     }
     await this.chain;
+    logInfo('indexer', `full scan: queue drained (${this.indexPassCount} file(s) re-indexed/updated in this pass)`);
   }
 
   getSnapshotStats(): {
@@ -212,6 +233,7 @@ export class Indexer {
   }
 
   async reconcile(): Promise<void> {
+    logInfo('indexer', `reconcile: scanning tree under ${this.config.watchRootAbs}`);
     const files = new Set(
       await walkFiles(
         this.config.watchRootAbs,
@@ -226,11 +248,17 @@ export class Indexer {
       ),
     );
     const known = Object.keys(this.meta.fileHashes);
+    let removed = 0;
     for (const rel of known) {
       if (!rels.has(rel)) {
-        await this.removeRelativePath(rel);
+        await this.removeRelativePath(rel, { silent: true });
+        removed += 1;
       }
     }
+    if (removed > 0) {
+      logInfo('indexer', `reconcile: removed ${removed} stale path(s) from index`);
+    }
     await this.fullScan();
+    logInfo('indexer', 'reconcile: done');
   }
 }

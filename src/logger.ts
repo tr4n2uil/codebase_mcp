@@ -1,26 +1,75 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { StringDecoder } from 'node:string_decoder';
 
-function packageRootDir(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-}
+export type FileLogKind = 'daemon' | 'mcp';
 
 let logFilePath = '';
 let stream: fs.WriteStream | null = null;
+let fileDecoder: StringDecoder | null = null;
+let lineBuf = '';
 
 /**
- * Append all stderr (including `console.error`) to `codebase-mcp/.logs/<pid>`,
- * while still writing to the original stderr (MCP clients keep host-visible logs when attached).
+ * Append all stderr (including `console.error`) to `<indexDir>/.logs/mcp.log` or `daemon.log`,
+ * while still writing to the original stderr. Each *line* in the file is prefixed with `[pid=…] `.
+ * `indexDir` is the resolved `CODEBASE_MCP_INDEX_DIR` (e.g. `.../codebase_mcp/db/<repo>/`), next to `meta.json` and `lancedb/`.
  */
-export function initFileLogging(): string {
+export function initFileLogging(indexDirAbs: string, kind: FileLogKind): string {
   if (stream) {
     return logFilePath;
   }
-  const dir = path.join(packageRootDir(), '.logs');
+  const dir = path.join(indexDirAbs, '.logs');
   fs.mkdirSync(dir, { recursive: true });
-  logFilePath = path.join(dir, String(process.pid));
+  const name = kind === 'daemon' ? 'daemon.log' : 'mcp.log';
+  logFilePath = path.join(dir, name);
   stream = fs.createWriteStream(logFilePath, { flags: 'a', autoClose: false });
+  fileDecoder = new StringDecoder('utf8');
+
+  const pid = process.pid;
+  const linePrefix = `[pid=${pid}] `;
+
+  const writePrefixedLineToFile = (line: string) => {
+    try {
+      stream!.write(linePrefix + line + '\n', 'utf8');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const processTextForFile = (text: string) => {
+    lineBuf += text;
+    const parts = lineBuf.split('\n');
+    lineBuf = parts.pop() ?? '';
+    for (const line of parts) {
+      writePrefixedLineToFile(line);
+    }
+  };
+
+  const chunkToText = (chunk: string | Uint8Array): string => {
+    if (typeof chunk === 'string') {
+      return chunk;
+    }
+    return fileDecoder!.write(chunk instanceof Buffer ? chunk : Buffer.from(chunk));
+  };
+
+  const onceBeforeExit = () => {
+    process.removeListener('beforeExit', onceBeforeExit);
+    try {
+      if (fileDecoder) {
+        const tail = fileDecoder.end();
+        if (tail) {
+          processTextForFile(tail);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    if (lineBuf.length > 0) {
+      writePrefixedLineToFile(lineBuf);
+      lineBuf = '';
+    }
+  };
+  process.once('beforeExit', onceBeforeExit);
 
   const stderr = process.stderr;
   const origWrite = stderr.write.bind(stderr);
@@ -29,21 +78,20 @@ export function initFileLogging(): string {
     encodingOrCb?: BufferEncoding | ((err?: Error | null | undefined) => void),
     cb?: (err?: Error | null | undefined) => void,
   ): boolean => {
-    try {
-      if (typeof chunk === 'string') {
-        stream!.write(chunk, 'utf8');
-      } else {
-        stream!.write(chunk);
-      }
-    } catch {
-      /* ignore */
+    const text = chunkToText(chunk);
+    if (text.length > 0) {
+      processTextForFile(text);
     }
     return origWrite(chunk, encodingOrCb as never, cb as never);
   };
 
-  const banner = `[codebase-mcp] pid=${process.pid} logging to ${logFilePath}\n`;
-  stream.write(banner);
+  const banner = `[codebase-mcp] logging to ${logFilePath} (appending, pid=${pid})\n`;
   origWrite(banner);
+  try {
+    stream.write(linePrefix + `[codebase-mcp] file logging started\n`, 'utf8');
+  } catch {
+    /* ignore */
+  }
   return logFilePath;
 }
 

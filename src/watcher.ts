@@ -5,6 +5,7 @@ import { isCoveredByForceInclude } from './force-include.js';
 import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
 import { normalizeIgnorePath } from './gitignore.js';
+import { logError, logInfo } from './log.js';
 
 /** Path segments under the watch root we never attach watchers to (reduces EMFILE). */
 const WATCH_IGNORE_SEGMENTS = new Set([
@@ -72,12 +73,15 @@ export function startWatcher(config: AppConfig, indexer: Indexer) {
     },
   });
 
+  logInfo('watcher', `started (polling=${config.usePolling} interval=${config.pollingIntervalMs}ms) on ${config.watchRootAbs}`);
+
   watcher.on('error', (error: unknown) => {
     const err = error as NodeJS.ErrnoException;
-    console.error('[codebase-mcp] watcher error:', err?.message ?? error);
+    logError('watcher', `error: ${err?.message ?? String(error)}`, error);
     if (err?.code === 'EMFILE') {
-      console.error(
-        '[codebase-mcp] EMFILE (too many open files): use polling (default CODEBASE_MCP_USE_POLLING=true), ignore large dirs, or raise `ulimit -n`.',
+      logInfo(
+        'watcher',
+        'hint: use CODEBASE_MCP_USE_POLLING=true, ignore large dirs, or raise `ulimit -n`',
       );
     }
   });

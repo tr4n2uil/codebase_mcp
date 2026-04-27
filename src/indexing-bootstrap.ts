@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import { createRootGitignoreFilter } from './gitignore.js';
+import { logInfo } from './log.js';
 import { readMeta, writeMeta } from './meta.js';
 import { ChunkStore } from './store.js';
 import { Indexer } from './indexer.js';
@@ -24,6 +25,10 @@ export interface IndexingHandles {
  * Shared setup: meta, LanceDB, indexer, filesystem watcher. Caller runs MCP or daemon IPC on top.
  */
 export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHandles> {
+  logInfo(
+    'bootstrap',
+    `index root=${config.watchRootAbs} indexDir=${config.indexDirAbs} lance=${config.lanceDirAbs} model=${config.embeddingModel}`,
+  );
   await fs.mkdir(config.indexDirAbs, { recursive: true });
 
   let meta = await readMeta(config.metaPathAbs);
@@ -78,7 +83,7 @@ export async function bootstrapIndexing(config: AppConfig): Promise<IndexingHand
   const indexer = new Indexer(config, ig, store, meta);
 
   void indexer.fullScan().then(() => {
-    console.error('[codebase-mcp] Initial index pass finished');
+    logInfo('bootstrap', 'initial full scan queue finished (indexer may still be embedding)');
   });
 
   const watcher = startWatcher(config, indexer);

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { AppConfig } from './config.js';
 import { DaemonClient } from './daemon-client.js';
 import { daemonStateDir, getDaemonListenPath, spawnLockPath } from './daemon-paths.js';
+import { logInfo } from './log.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -102,6 +103,7 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
     try {
       const again = await tryPing(listenPath);
       if (again) {
+        logInfo('mcp', `indexer daemon ready (peer started it while waiting for lock)`);
         return again;
       }
 
@@ -110,6 +112,10 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
       }
 
       const entry = mainScriptPath();
+      logInfo(
+        'mcp',
+        `starting indexer daemon: ${process.execPath} ${entry} --daemon (indexDir=${config.indexDirAbs})`,
+      );
       const child = spawn(process.execPath, [entry, '--daemon'], {
         env: process.env,
         detached: true,
@@ -121,6 +127,7 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
       while (Date.now() < innerDeadline) {
         const c = await tryPing(listenPath);
         if (c) {
+          logInfo('mcp', `indexer daemon is ready (spawned in this session)`);
           return c;
         }
         await sleep(100);

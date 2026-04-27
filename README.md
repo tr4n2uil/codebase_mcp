@@ -33,7 +33,7 @@ node dist/main.js --daemon
 
 Set **`CODEBASE_MCP_NO_DAEMON=1`** to restore the previous behavior (watcher + MCP in one process), e.g. for debugging.
 
-**Logs:** every process (MCP client or `--daemon`) mirrors **stderr** to **`codebase-mcp/.logs/<pid>`** (plain file named by process id; directory is gitignored). Use this to confirm indexing when the daemon was started detached.
+**Logs:** stderr is mirrored to **`<CODEBASE_MCP_INDEX_DIR>/.logs/mcp.log`** (MCP / stdio process) or **`.logs/daemon.log`** (`--daemon` indexer). All lines in those files are prefixed with **`[pid=…] `** so multiple processes and restarts are easy to follow. (Default: `codebase-mcp/db/<repo>/.logs/`; under `db/` and gitignored with the index.) Use this to confirm indexing when the daemon was started detached.
 
 First run downloads the embedding model (cached by Transformers.js, see `HF_HOME` / `XDG_CACHE_HOME`).
 
@@ -56,6 +56,8 @@ First run downloads the embedding model (cached by Transformers.js, see `HF_HOME
 | `CODEBASE_MCP_RERANK` | `true` | Apply lexical/path reranking to vector search candidates |
 | `CODEBASE_MCP_RERANK_CANDIDATES` | `50` | Candidate pool size fetched before reranking |
 | `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | Include `rerank_score` in `codebase_search` output for tuning/debugging |
+| `CODEBASE_MCP_VERBOSE` | `true` | Log every successfully indexed file (`path` + chunk count); set `false` on very large repos |
+| `CODEBASE_MCP_LOG_TOOLS` | `true` | Log each MCP tool call name (and reindex path) to stderr; set `false` to reduce noise |
 | `CODEBASE_MCP_FORCE_INCLUDE` | _(empty)_ | Comma- or newline-separated **repo-relative** POSIX paths (e.g. `generated/api,tmp/docs`) that are indexed **even if** matched by root `.gitignore`. Lets you avoid `!` negation rules in `.gitignore`. Does **not** override hard safety skips (`.git/`, `node_modules/`, `.env*`, key material, etc.). Also overrides watcher segment skips (`dist/`, `build/`, …) when the path is on the way to or inside a listed entry. |
 | `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** Node process (no shared daemon). |
 

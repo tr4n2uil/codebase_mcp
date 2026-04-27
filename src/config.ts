@@ -47,6 +47,10 @@ export interface AppConfig {
   rerankCandidates: number;
   /** Include reranking diagnostic fields in search output. */
   rerankDebugScores: boolean;
+  /** Log every indexed file path (can be noisy on large repos). */
+  logIndexEachFile: boolean;
+  /** Log each MCP tool invocation to stderr. */
+  logMcpTools: boolean;
 }
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -89,6 +93,8 @@ export function loadConfig(): AppConfig {
   const rerankCandidates =
     Number.parseInt(process.env.CODEBASE_MCP_RERANK_CANDIDATES || '50', 10) || 50;
   const rerankDebugScores = parseBool(process.env.CODEBASE_MCP_RERANK_DEBUG_SCORES, false);
+  const logIndexEachFile = parseBool(process.env.CODEBASE_MCP_VERBOSE, true);
+  const logMcpTools = parseBool(process.env.CODEBASE_MCP_LOG_TOOLS, true);
   return {
     watchRootAbs,
     indexDirAbs,
@@ -109,6 +115,8 @@ export function loadConfig(): AppConfig {
     rerankEnabled,
     rerankCandidates,
     rerankDebugScores,
+    logIndexEachFile,
+    logMcpTools,
   };
 }
 

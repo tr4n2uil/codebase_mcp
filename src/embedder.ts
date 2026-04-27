@@ -1,5 +1,6 @@
 import { pipeline } from '@xenova/transformers';
 import type { AppConfig } from './config.js';
+import { logError, logInfo } from './log.js';
 
 type FeatureExtractor = (texts: string | string[], options?: object) => Promise<{ data: Float32Array; dims?: number[] }>;
 
@@ -7,7 +8,17 @@ let extractorPromise: Promise<FeatureExtractor> | null = null;
 
 export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
   if (!extractorPromise) {
-    extractorPromise = pipeline('feature-extraction', config.embeddingModel).then((p) => p as FeatureExtractor);
+    logInfo('embedder', `loading ${config.embeddingModel} (first use; may download/cache)…`);
+    extractorPromise = pipeline('feature-extraction', config.embeddingModel)
+      .then((p) => {
+        logInfo('embedder', `ready: ${config.embeddingModel}`);
+        return p as FeatureExtractor;
+      })
+      .catch((e) => {
+        logError('embedder', `failed to load ${config.embeddingModel}`, e);
+        extractorPromise = null;
+        throw e;
+      });
   }
   return extractorPromise;
 }

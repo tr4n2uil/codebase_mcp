@@ -5,6 +5,7 @@ import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
 import type { IpcRequest, IpcResponse } from './ipc-protocol.js';
 import { encodeMessage, parseLine } from './ipc-protocol.js';
+import { logError, logInfo } from './log.js';
 import { runCodebaseReindex } from './mcp-tools.js';
 
 const reindexPayloadSchema = z.object({
@@ -20,6 +21,12 @@ async function dispatch(req: IpcRequest, config: AppConfig, indexer: Indexer): P
       const parsed = reindexPayloadSchema.safeParse(req.payload ?? {});
       if (!parsed.success) {
         return { id, ok: false, error: parsed.error.message };
+      }
+      const p = parsed.data.path?.trim();
+      if (p) {
+        logInfo('ipc', `reindex (single file): ${p}`);
+      } else {
+        logInfo('ipc', 'reindex (full reconcile)');
       }
       const result = await runCodebaseReindex(config, indexer, parsed.data);
       return { id, ok: true, result };
@@ -59,13 +66,14 @@ export function startDaemonIpcServer(
               }
             } catch (e) {
               const msg = e instanceof Error ? e.message : String(e);
+              logError('ipc', `dispatch failed for cmd=${String(req.cmd)} id=${String(id)}`, e);
               if (!socket.destroyed) {
                 socket.write(encodeMessage({ id, ok: false, error: msg }));
               }
             }
           })
           .catch((e) => {
-            console.error('[codebase-mcp] ipc connection error:', e);
+            logError('ipc', 'connection handler error', e);
           });
       });
     });

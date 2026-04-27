@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import net from 'node:net';
-import { loadConfig } from './config.js';
+import { loadConfig, type AppConfig } from './config.js';
 import { bootstrapIndexing } from './indexing-bootstrap.js';
 import { daemonStateDir, getDaemonListenPath } from './daemon-paths.js';
 import { startDaemonIpcServer } from './daemon-server.js';
+import { logInfo } from './log.js';
 
 async function unlinkIfExists(p: string): Promise<void> {
   try {
@@ -17,9 +18,10 @@ async function unlinkIfExists(p: string): Promise<void> {
 
 /**
  * Single long-lived process: index + watch + periodic reconcile + IPC for MCP clients.
+ * Pass `config` from `main` when available to avoid a second `loadConfig()`.
  */
-export async function runIndexingDaemon(): Promise<void> {
-  const config = loadConfig();
+export async function runIndexingDaemon(configIn?: AppConfig): Promise<void> {
+  const config = configIn ?? loadConfig();
   const listenPath = getDaemonListenPath(config.indexDirAbs);
   await fs.mkdir(daemonStateDir(config.indexDirAbs), { recursive: true });
 
@@ -46,7 +48,8 @@ export async function runIndexingDaemon(): Promise<void> {
   }
 
   const ipcServer: net.Server = await startDaemonIpcServer(config, indexer, listenPath);
-  console.error(`[codebase-mcp] Daemon listening on ${listenPath} (reindex IPC; search uses local LanceDB reads in each MCP process)`);
+  logInfo('daemon', `IPC listening on ${listenPath} (commands: ping, reindex)`);
+  logInfo('daemon', 'search/stats are served by each MCP process via read-only LanceDB; this process only indexes');
 
   const shutdown = async () => {
     await new Promise<void>((resolve) => {

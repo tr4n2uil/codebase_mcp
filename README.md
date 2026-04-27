@@ -50,7 +50,7 @@ is there feature flag integrated?
 
 | Tool | Description |
 |------|-------------|
-| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`, `ext` / `lang` / `glob` to scope paths); response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
+| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`, optional `include_docs` to keep working-doc paths in **unscoped** search, `ext` / `lang` / `glob`); `path_prefix` scopes a subtree. Response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
 | `codebase_stats` | Chunk count, indexed file count, model, last scan time |
 | `codebase_reindex` | Optional `path` to reindex one file; omit for full **reconcile** |
 
@@ -106,7 +106,7 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST` | `true` | **MCP** | When the query looks UI/React/TS–oriented, **boost** common frontend paths (e.g. `.tsx`, `components/`, `app/javascript/`). Set `0` to disable. |
 | `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
 | `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
-| `CODEBASE_MCP_WORKING_DOCS_PATH` | `.claude/docs` | **Daemon** (list must **match the MCP** if you rely on `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE`; see that row) | Comma- or newline-separated **repo-relative** path prefixes indexed even if `.gitignore` would skip them. Default includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra “working docs” include). Unscoped `codebase_search` **omits** hits under these paths (see `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE`); they still **can** be searched with an explicit `path_prefix` (or a prefix that includes them, e.g. `.claude/`). |
+| `CODEBASE_MCP_WORKING_DOCS_PATH` | `.claude/docs` | **Daemon** (list must **match the MCP** if you rely on `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE`; see that row) | Comma- or newline-separated **repo-relative** path prefixes indexed even if `.gitignore` would skip them. Default includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra “working docs” include). Unscoped `codebase_search` **omits** hits under these paths (see `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE`); use `include_docs=true` to keep them in unscoped search, or `path_prefix` to only search a subtree. |
 | `CODEBASE_MCP_INDEX_EXCLUDE` | _(empty)_ | **Daemon** | Comma- or newline-separated **gitignore-style** patterns (repo-relative POSIX) to **skip indexing** without editing `.gitignore`. Overrides `CODEBASE_MCP_WORKING_DOCS_PATH` on matches. **Restart the daemon** after changing. Example for VCR/WebMock: `spec/vcr_cassettes/**, **/cassettes/**, **/fixtures/cassettes/**`. |
 | `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE` | `true` | **MCP** | When `true` (default), unscoped `codebase_search` **excludes** chunks under paths in `CODEBASE_MCP_WORKING_DOCS_PATH` (so plans/docs trees do not crowd generic code queries). Chunks are still indexed. Set a non-empty `path_prefix` that **covers** that tree to search it (e.g. `.claude/docs`). The MCP process must use the **same** `CODEBASE_MCP_WORKING_DOCS_PATH` as the daemon (or both defaults) so the exclusion set matches. Set `0` to include those paths in unscoped search. |
 | `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | **MCP** | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** process (no separate daemon). |

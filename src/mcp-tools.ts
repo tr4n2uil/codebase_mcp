@@ -61,6 +61,12 @@ export type CodebaseSearchArgs = {
   query: string;
   limit?: number;
   path_prefix?: string;
+  /**
+   * If true, unscoped search also returns chunks under `CODEBASE_MCP_WORKING_DOCS_PATH` (e.g. `.claude/docs`),
+   * which are normally omitted. Ignored when `path_prefix` is set (scoping is already explicit). `path_prefix`
+   * is unchanged — use it alone to only search a subtree, or with other filters.
+   */
+  include_docs?: boolean;
   ext?: string | string[];
   lang?: string;
   glob?: string;
@@ -82,7 +88,9 @@ export async function codebaseSearchPayload(
     return { ok: false, error: pathQuery.error };
   }
   const pathPrefix = normalizePathPrefixForSearch(args.path_prefix);
+  const includeDocs = args.include_docs === true;
   const unscopedOmitWorkingDocs =
+    !includeDocs &&
     config.searchExcludeForceInclude &&
     pathPrefix === undefined &&
     config.workingDocsPathsRelPosix.length > 0;
@@ -90,10 +98,10 @@ export async function codebaseSearchPayload(
     if (!unscopedOmitWorkingDocs) {
       return pathQuery.pathFilter;
     }
-    const workingDocs = config.workingDocsPathsRelPosix;
+    const working = config.workingDocsPathsRelPosix;
     const base = pathQuery.pathFilter;
     return (relPath: string): boolean => {
-      if (isCoveredByForceInclude(relPath, workingDocs)) {
+      if (isCoveredByForceInclude(relPath, working)) {
         return false;
       }
       if (base && !base(relPath)) {

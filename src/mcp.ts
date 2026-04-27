@@ -99,7 +99,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to <repo>/.claude/codebase_mcp/db (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB. Unscoped search omits paths under CODEBASE_MCP_WORKING_DOCS_PATH (e.g. .claude/docs) unless you set path_prefix to include that tree; disable with CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE=0. JSON includes heuristic match quality fields: match_confidence (high|medium|low), match_confidence_reasons, match_confidence_hint, top_primary_score, top_relative_separation (omit with CODEBASE_MCP_MATCH_CONFIDENCE=0). Chunks may include definition_of when indexed with code-aware chunking (boosts “where is X defined?” style queries; see CODEBASE_MCP_DEF_BOOST). Optional: path_prefix, ext, lang, and glob scope results (useful in monorepos; combined with AND). Optional: CODEBASE_MCP_CROSS_ENCODER=1 runs a BGE-style cross-encoder reranker on the top K candidates after hybrid/heuristic rerank (extra latency, better precision@1).',
+        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to <repo>/.claude/codebase_mcp/db (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB. Unscoped search omits paths under CODEBASE_MCP_WORKING_DOCS_PATH (e.g. .claude/docs) unless you set path_prefix to include that tree, or set include_docs=true to include those paths in the same unscoped result set as the rest of the repo. path_prefix and include_docs are separate: use path_prefix to scope; include_docs only affects the default unscoped exclude. Disable the global omit with CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE=0. JSON includes heuristic match quality fields: match_confidence (high|medium|low), match_confidence_reasons, match_confidence_hint, top_primary_score, top_relative_separation (omit with CODEBASE_MCP_MATCH_CONFIDENCE=0). Chunks may include definition_of when indexed with code-aware chunking (boosts “where is X defined?” style queries; see CODEBASE_MCP_DEF_BOOST). Optional: path_prefix, ext, lang, and glob scope results (useful in monorepos; combined with AND). Optional: CODEBASE_MCP_CROSS_ENCODER=1 runs a BGE-style cross-encoder reranker on the top K candidates after hybrid/heuristic rerank (extra latency, better precision@1).',
       inputSchema: {
         query: z.string().min(1).describe('Natural language search query'),
         limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),
@@ -107,7 +107,13 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
           .string()
           .optional()
           .describe(
-            'Only chunks whose path starts with this prefix (POSIX, relative to repo root). Use this to search trees under CODEBASE_MCP_WORKING_DOCS_PATH (e.g. .claude/docs) that are excluded from unscoped search by default',
+            'Only chunks whose path starts with this prefix (POSIX, relative to repo root). E.g. set to .claude/docs to only search the working-docs tree. Unscoped, those paths are omitted unless include_docs is true (see tool description).',
+          ),
+        include_docs: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, unscoped search also includes chunks under CODEBASE_MCP_WORKING_DOCS_PATH. Ignored when path_prefix is set.',
           ),
         ext: z
           .union([z.string().min(1), z.array(z.string().min(1))])

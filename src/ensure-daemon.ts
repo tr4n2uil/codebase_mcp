@@ -15,18 +15,55 @@ function mainScriptPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), 'main.js');
 }
 
+const PING_ATTEMPT_TIMEOUT_MS = 8_000;
+
+/**
+ * Tries a single connect + `ping` round-trip. **Bounded** in wall time: if the socket never
+ * connects, or the server never returns a line, or `call` hangs, we destroy the client and
+ * return null so the outer `ensure` loop can retry instead of stalling the MCP process forever.
+ */
 async function tryPing(listenPath: string): Promise<DaemonClient | null> {
-  try {
-    const client = await DaemonClient.connect(listenPath);
-    const resp = await client.call('ping');
-    if (resp.ok && (resp.result as { ok?: boolean })?.ok === true) {
-      return client;
+  let c: DaemonClient | null = null;
+  let timedOut = false;
+  const t = setTimeout(() => {
+    timedOut = true;
+    try {
+      c?.destroy();
+    } catch {
+      /* ignore */
     }
-    client.destroy();
+    c = null;
+  }, PING_ATTEMPT_TIMEOUT_MS);
+  try {
+    c = await DaemonClient.connect(listenPath);
+    if (timedOut) {
+      c.destroy();
+      return null;
+    }
+    const resp = await c.call('ping');
+    if (timedOut) {
+      c.destroy();
+      return null;
+    }
+    if (resp.ok && (resp.result as { ok?: boolean })?.ok === true) {
+      const out = c;
+      c = null;
+      return out;
+    }
+    c.destroy();
+    c = null;
+    return null;
   } catch {
-    /* not ready */
+    try {
+      c?.destroy();
+    } catch {
+      /* ignore */
+    }
+    c = null;
+    return null;
+  } finally {
+    clearTimeout(t);
   }
-  return null;
 }
 
 async function unlinkIfExists(p: string): Promise<void> {
@@ -82,71 +119,82 @@ export async function ensureDaemonClient(config: AppConfig): Promise<DaemonClien
 
   const deadline = Date.now() + 60_000;
   let waitLogged = false;
-  while (Date.now() < deadline) {
-    const ready = await tryPing(listenPath);
-    if (ready) {
-      logInfo('mcp', 'indexer daemon ready (ping ok)');
-      return ready;
-    }
-    if (!waitLogged) {
-      logInfo('mcp', 'indexer daemon not ready yet; retrying, acquiring spawn lock, or waiting for peer…');
-      waitLogged = true;
-    }
-
-    const lockPath = spawnLockPath(config.indexDirAbs);
-    let acquired = false;
-    try {
-      await fs.writeFile(lockPath, String(process.pid), { flag: 'wx' });
-      acquired = true;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
-        throw e;
-      }
-      await tryRemoveStaleSpawnLock(lockPath);
-      await sleep(50);
-      continue;
-    }
-
-    try {
-      const again = await tryPing(listenPath);
-      if (again) {
-        logInfo('mcp', `indexer daemon ready (peer started it while waiting for lock)`);
-        return again;
-      }
-
-      if (process.platform !== 'win32') {
-        await unlinkIfExists(listenPath);
-      }
-
-      const entry = mainScriptPath();
+  const hb = setInterval(() => {
+    if (Date.now() < deadline) {
       logInfo(
         'mcp',
-        `starting indexer daemon: ${process.execPath} ${entry} --daemon (indexDir=${config.indexDirAbs})`,
+        'still waiting for indexer daemon (ping each attempt is time-limited; lock may be held by another spawner)…',
       );
-      const child = spawn(process.execPath, [entry, '--daemon'], {
-        env: process.env,
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
-
-      logInfo('mcp', 'waiting for spawned daemon to accept ping on socket…');
-      const innerDeadline = Date.now() + 45_000;
-      while (Date.now() < innerDeadline) {
-        const c = await tryPing(listenPath);
-        if (c) {
-          logInfo('mcp', `indexer daemon is ready (spawned in this session)`);
-          return c;
-        }
-        await sleep(100);
+    }
+  }, 10_000);
+  try {
+    while (Date.now() < deadline) {
+      const ready = await tryPing(listenPath);
+      if (ready) {
+        logInfo('mcp', 'indexer daemon ready (ping ok)');
+        return ready;
       }
-      throw new Error('[codebase-mcp] Daemon did not become ready in time.');
-    } finally {
-      if (acquired) {
-        await fs.unlink(lockPath).catch(() => {});
+      if (!waitLogged) {
+        logInfo('mcp', 'indexer daemon not ready yet; retrying, acquiring spawn lock, or waiting for peer…');
+        waitLogged = true;
+      }
+
+      const lockPath = spawnLockPath(config.indexDirAbs);
+      let acquired = false;
+      try {
+        await fs.writeFile(lockPath, String(process.pid), { flag: 'wx' });
+        acquired = true;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw e;
+        }
+        await tryRemoveStaleSpawnLock(lockPath);
+        await sleep(50);
+        continue;
+      }
+
+      try {
+        const again = await tryPing(listenPath);
+        if (again) {
+          logInfo('mcp', `indexer daemon ready (peer started it while waiting for lock)`);
+          return again;
+        }
+
+        if (process.platform !== 'win32') {
+          await unlinkIfExists(listenPath);
+        }
+
+        const entry = mainScriptPath();
+        logInfo(
+          'mcp',
+          `starting indexer daemon: ${process.execPath} ${entry} --daemon (indexDir=${config.indexDirAbs})`,
+        );
+        const child = spawn(process.execPath, [entry, '--daemon'], {
+          env: process.env,
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+
+        logInfo('mcp', 'waiting for spawned daemon to accept ping on socket…');
+        const innerDeadline = Date.now() + 45_000;
+        while (Date.now() < innerDeadline) {
+          const c = await tryPing(listenPath);
+          if (c) {
+            logInfo('mcp', `indexer daemon is ready (spawned in this session)`);
+            return c;
+          }
+          await sleep(100);
+        }
+        throw new Error('[codebase-mcp] Daemon did not become ready in time.');
+      } finally {
+        if (acquired) {
+          await fs.unlink(lockPath).catch(() => {});
+        }
       }
     }
+    throw new Error('[codebase-mcp] Timed out waiting for daemon.');
+  } finally {
+    clearInterval(hb);
   }
-
-  throw new Error('[codebase-mcp] Timed out waiting for daemon.');
 }

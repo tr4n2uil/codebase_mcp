@@ -81,6 +81,10 @@ export class Indexer {
   private indexPassCount = 0;
   /** Files completed in the current `fullScan` (including skips); used for periodic progress. */
   private fullScanFilesCompleted = 0;
+  /** In the current `fullScan`, how many files skipped read/embed via `fileStatCache` (stat+mtime). */
+  private fullScanStatSkips = 0;
+  /** In the current `fullScan`, how many files read+hashed, content same as `meta` (CPU-heavy, no embed). */
+  private fullScanHashSkips = 0;
 
   constructor(
     private readonly config: AppConfig,
@@ -117,10 +121,14 @@ export class Indexer {
       if (source === 'fullscan') {
         this.fullScanFilesCompleted += 1;
         const n = this.fullScanFilesCompleted;
-        if (n === 1 || n % 200 === 0) {
+        if (n === 1 || n % 50 === 0) {
+          const st = this.fullScanStatSkips;
+          const h = this.fullScanHashSkips;
+          const e = this.indexPassCount;
+          const other = n - st - h - e;
           logInfo(
             'indexer',
-            `full scan: ${n} file(s) rechecked; ${this.indexPassCount} fully re-embedded in this pass so far`,
+            `full scan: ${n} queued file(s) done; stat-skip ${st}; read+hash unchanged ${h} (uses CPU: read+sha256, no re-embed); re-embed ${e}; other ${other}`,
           );
         }
       }
@@ -161,6 +169,9 @@ export class Indexer {
       st.size === fp.size &&
       st.mtimeMs === fp.mtimeMs
     ) {
+      if (source === 'fullscan') {
+        this.fullScanStatSkips += 1;
+      }
       return;
     }
     let content: string;
@@ -173,6 +184,9 @@ export class Indexer {
     const hash = sha256Hex(content);
     if (this.meta.fileHashes[rel] === hash) {
       this.setFileStatCache(rel, st);
+      if (source === 'fullscan') {
+        this.fullScanHashSkips += 1;
+      }
       if (source === 'watcher') {
         await this.persistMeta();
       }
@@ -270,6 +284,8 @@ export class Indexer {
     );
     this.indexPassCount = 0;
     this.fullScanFilesCompleted = 0;
+    this.fullScanStatSkips = 0;
+    this.fullScanHashSkips = 0;
     logInfo(
       'indexer',
       `full scan: rechecking ${files.length} file(s) under ${this.config.watchRootAbs} (unchanged: stat cache in meta skips read; content hash skips re-embed)`,
@@ -280,7 +296,10 @@ export class Indexer {
     await this.chain;
     this.meta.lastFullScanAt = new Date().toISOString();
     await this.persistMeta();
-    logInfo('indexer', `full scan: queue drained (${this.indexPassCount} file(s) re-embedded; others skipped or hash-only) in this pass`);
+    logInfo(
+      'indexer',
+      `full scan: queue drained; stat-skip ${this.fullScanStatSkips}; read+hash unchanged ${this.fullScanHashSkips}; re-embedded ${this.indexPassCount} (one meta.json write at end)`,
+    );
   }
 
   getSnapshotStats(): {

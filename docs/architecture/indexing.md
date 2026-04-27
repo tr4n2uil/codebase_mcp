@@ -27,7 +27,7 @@ flowchart LR
 
 ## Path selection
 
-- **Walk / watch** — Repo is traversed and watched under `CODEBASE_MCP_ROOT`, respecting **root `.gitignore`** (via the `ignore` package), **`CODEBASE_MCP_FORCE_INCLUDE`**, and **`CODEBASE_MCP_INDEX_EXCLUDE`** (codebase-mcp–only ignore patterns; see [configuration](config.md)).
+- **Walk / watch** — Repo is traversed and watched under `CODEBASE_MCP_ROOT`, respecting **root `.gitignore`** (via the `ignore` package), **`CODEBASE_MCP_WORKING_DOCS_PATH`**, and **`CODEBASE_MCP_INDEX_EXCLUDE`** (codebase-mcp–only ignore patterns; see [configuration](config.md)).
 - **Safety** — e.g. `.git`, `node_modules`, and certain secret file patterns are always skipped (`path-filters.ts`).
 - **Extensions** — `shouldConsiderExtension` allows known text-y extensions; others are ignored.
 

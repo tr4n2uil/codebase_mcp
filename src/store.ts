@@ -35,6 +35,15 @@ export interface ChunkStoreSearchOptions {
   queryText: string;
   limit: number;
   pathPrefix?: string;
+  /**
+   * Post-filter on repo-relative POSIX `path` (after vector + optional `pathPrefix` in SQL).
+   * Used for `ext` / `lang` / `glob` in `codebase_search`; not applied in Lance SQL today.
+   */
+  pathFilter?: (relPath: string) => boolean;
+  /**
+   * When true, fetches a larger candidate pool before filtering (ext/glob would otherwise empty the top-`limit`).
+   */
+  pathFilterNarrowing?: boolean;
 }
 
 function sqlLiteral(value: string): string {
@@ -224,19 +233,43 @@ export class ChunkStore {
   /**
    * Vector-only search (no query text for FTS). Used for fallback and when hybrid is off.
    */
+  private vectorOverFetchLimit(
+    limit: number,
+    pathPrefix: string | undefined,
+    pathFilter: ((p: string) => boolean) | undefined,
+    pathFilterNarrowing: boolean,
+  ): number {
+    if (pathFilterNarrowing && pathFilter) {
+      return Math.min(2000, Math.max(limit * 20, 100));
+    }
+    if (pathPrefix && pathPrefix.length > 0) {
+      return Math.min(200, Math.max(limit * 8, limit));
+    }
+    return limit;
+  }
+
+  private applyPathFilter(
+    hits: SearchHit[],
+    pathFilter: ((p: string) => boolean) | undefined,
+  ): SearchHit[] {
+    if (!pathFilter) {
+      return hits;
+    }
+    return hits.filter((h) => pathFilter(h.path));
+  }
+
   private async searchVectorOnly(
     queryVector: Float32Array,
     limit: number,
     pathPrefix?: string,
+    pathFilter?: (relPath: string) => boolean,
+    pathFilterNarrowing?: boolean,
   ): Promise<SearchHit[]> {
     if (!this.table) {
       return [];
     }
     const table = this.requireTable();
-    const fetchLimit =
-      pathPrefix && pathPrefix.length > 0
-        ? Math.min(200, Math.max(limit * 8, limit))
-        : limit;
+    const fetchLimit = this.vectorOverFetchLimit(limit, pathPrefix, pathFilter, pathFilterNarrowing ?? false);
     const q = table.vectorSearch(Array.from(queryVector)).limit(fetchLimit);
     const rows = await q.toArray();
     const hits: SearchHit[] = [];
@@ -258,20 +291,37 @@ export class ChunkStore {
       const prefix = pathPrefix.replace(/\/+$/, '');
       filtered = hits.filter((h) => h.path === prefix || h.path.startsWith(`${prefix}/`));
     }
+    filtered = this.applyPathFilter(filtered, pathFilter);
     return filtered.slice(0, limit);
   }
 
   private async searchHybridRrf(
-    args: { queryVector: Float32Array; queryText: string; limit: number; pathPrefix?: string },
+    args: {
+      queryVector: Float32Array;
+      queryText: string;
+      limit: number;
+      pathPrefix?: string;
+      pathFilter?: (relPath: string) => boolean;
+      pathFilterNarrowing?: boolean;
+    },
   ): Promise<SearchHit[]> {
     if (!this.table) {
       return [];
     }
     const text = args.queryText.trim();
     if (text.length === 0) {
-      return this.searchVectorOnly(args.queryVector, args.limit, args.pathPrefix);
+      return this.searchVectorOnly(
+        args.queryVector,
+        args.limit,
+        args.pathPrefix,
+        args.pathFilter,
+        args.pathFilterNarrowing,
+      );
     }
-    const baseDepth = Math.max(this.hybridDepth, args.limit, 1);
+    const narrow = args.pathFilterNarrowing && args.pathFilter;
+    const mult = narrow ? 4 : 1;
+    const cap = 800;
+    const baseDepth = Math.min(cap, Math.max(this.hybridDepth, args.limit, 1) * mult);
     const rrfReranker = await rerankers.RRFReranker.create(this.rrfK);
     const table = this.requireTable();
     let q = table.vectorSearch(Array.from(args.queryVector));
@@ -295,13 +345,12 @@ export class ChunkStore {
         ...(def ? { definition_of: def } : {}),
       };
     });
+    let out = this.applyPathFilter(hits, args.pathFilter);
     if (args.pathPrefix && args.pathPrefix.length > 0) {
       const prefix = args.pathPrefix.replace(/\/+$/, '');
-      return hits
-        .filter((h) => h.path === prefix || h.path.startsWith(`${prefix}/`))
-        .slice(0, args.limit);
+      out = out.filter((h) => h.path === prefix || h.path.startsWith(`${prefix}/`));
     }
-    return hits.slice(0, args.limit);
+    return out.slice(0, args.limit);
   }
 
   /**
@@ -312,19 +361,26 @@ export class ChunkStore {
     if (!this.table) {
       return [];
     }
-    const { queryVector, queryText, limit, pathPrefix } = opts;
+    const { queryVector, queryText, limit, pathPrefix, pathFilter, pathFilterNarrowing } = opts;
     if (!this.hybridEnabled) {
-      return this.searchVectorOnly(queryVector, limit, pathPrefix);
+      return this.searchVectorOnly(queryVector, limit, pathPrefix, pathFilter, pathFilterNarrowing);
     }
     const canHybrid =
       queryText.trim().length > 0 && (this.canCreateIndices || (await this.hasFtsIndex()));
     if (!canHybrid) {
-      return this.searchVectorOnly(queryVector, limit, pathPrefix);
+      return this.searchVectorOnly(queryVector, limit, pathPrefix, pathFilter, pathFilterNarrowing);
     }
     try {
-      return await this.searchHybridRrf({ queryVector, queryText, limit, pathPrefix });
+      return await this.searchHybridRrf({
+        queryVector,
+        queryText,
+        limit,
+        pathPrefix,
+        pathFilter,
+        pathFilterNarrowing,
+      });
     } catch {
-      return this.searchVectorOnly(queryVector, limit, pathPrefix);
+      return this.searchVectorOnly(queryVector, limit, pathPrefix, pathFilter, pathFilterNarrowing);
     }
   }
 

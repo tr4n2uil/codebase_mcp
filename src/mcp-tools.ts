@@ -11,6 +11,16 @@ import { rerankSearchHits } from './rerank.js';
 import type { RerankedHit } from './rerank.js';
 import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
 import type { SearchHit } from './store.js';
+import { isCoveredByForceInclude } from './force-include.js';
+import { parsePathQueryForSearch } from './path-query-filter.js';
+
+function normalizePathPrefixForSearch(raw: string | undefined): string | undefined {
+  const t = raw?.trim() ?? '';
+  if (t.length === 0) {
+    return undefined;
+  }
+  return t.replace(/\\/g, '/').replace(/\/+$/, '');
+}
 
 function rerankScoreForPayload(h: SearchHit | RerankedHit): number | undefined {
   if (!('rerank_score' in h)) {
@@ -47,13 +57,52 @@ export type CodebaseSearchPayload =
     };
 
 /** Same pipeline as MCP `codebase_search`; use for CLIs and tests (structured JSON, no MCP wrapper). */
+export type CodebaseSearchArgs = {
+  query: string;
+  limit?: number;
+  path_prefix?: string;
+  ext?: string | string[];
+  lang?: string;
+  glob?: string;
+};
+
 export async function codebaseSearchPayload(
   config: AppConfig,
   store: ChunkStore,
-  args: { query: string; limit?: number; path_prefix?: string },
+  args: CodebaseSearchArgs,
 ): Promise<CodebaseSearchPayload> {
   const lim = args.limit ?? 10;
   const candidateLimit = Math.max(lim, config.rerankCandidates);
+  const pathQuery = parsePathQueryForSearch({
+    ext: args.ext,
+    lang: args.lang,
+    glob: args.glob,
+  });
+  if (!pathQuery.ok) {
+    return { ok: false, error: pathQuery.error };
+  }
+  const pathPrefix = normalizePathPrefixForSearch(args.path_prefix);
+  const unscopedOmitWorkingDocs =
+    config.searchExcludeForceInclude &&
+    pathPrefix === undefined &&
+    config.workingDocsPathsRelPosix.length > 0;
+  const pathFilter = (() => {
+    if (!unscopedOmitWorkingDocs) {
+      return pathQuery.pathFilter;
+    }
+    const workingDocs = config.workingDocsPathsRelPosix;
+    const base = pathQuery.pathFilter;
+    return (relPath: string): boolean => {
+      if (isCoveredByForceInclude(relPath, workingDocs)) {
+        return false;
+      }
+      if (base && !base(relPath)) {
+        return false;
+      }
+      return true;
+    };
+  })();
+  const pathFilterNarrowing = unscopedOmitWorkingDocs || pathQuery.pathFilterNarrowing;
   const extractor = await getEmbedder(config);
   const [qvec] = await embedTexts(extractor, [args.query], config.embeddingDim, config.embedInferenceLogMs);
   if (!qvec) {
@@ -63,7 +112,9 @@ export async function codebaseSearchPayload(
     queryVector: qvec,
     queryText: args.query,
     limit: candidateLimit,
-    pathPrefix: args.path_prefix,
+    pathPrefix,
+    pathFilter,
+    pathFilterNarrowing,
   });
   const defTarget =
     config.definitionBoostEnabled && config.definitionBoost > 0
@@ -160,7 +211,7 @@ export async function codebaseSearchPayload(
 export async function runCodebaseSearch(
   config: AppConfig,
   store: ChunkStore,
-  args: { query: string; limit?: number; path_prefix?: string },
+  args: CodebaseSearchArgs,
 ): Promise<{ content: McpTextContent[] }> {
   const payload = await codebaseSearchPayload(config, store, args);
   if (!payload.ok) {

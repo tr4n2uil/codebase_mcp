@@ -33,13 +33,22 @@ export interface AppConfig {
   usePolling: boolean;
   /** Polling interval when usePolling is true (ms). */
   pollingIntervalMs: number;
-  /** Repo-relative POSIX paths that bypass .gitignore for indexing (safety rules still apply). */
-  forceIncludeRelPosix: string[];
+  /**
+   * Repo-relative POSIX paths that bypass .gitignore for indexing (safety rules still apply).
+   * From `CODEBASE_MCP_WORKING_DOCS_PATH` (comma/newline list; default includes `.claude/docs`).
+   */
+  workingDocsPathsRelPosix: string[];
   /**
    * Gitignore-style patterns (repo-relative) never indexed; not written to `.gitignore`.
-   * Overrides `forceIncludeRelPosix` for matching paths. Parsed from `CODEBASE_MCP_INDEX_EXCLUDE`.
+   * Overrides `workingDocsPathsRelPosix` for matching paths. Parsed from `CODEBASE_MCP_INDEX_EXCLUDE`.
    */
   indexExcludeRelPosix: string[];
+  /**
+   * When true (default), unscoped `codebase_search` omits hits under `workingDocsPathsRelPosix` (same list
+   * as `CODEBASE_MCP_WORKING_DOCS_PATH`). Those paths are still indexed; to search them, set `path_prefix` to
+   * a prefix that includes them. Disable with `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE=0`.
+   */
+  searchExcludeForceInclude: boolean;
   /** Enable symbol-aware chunking with line-window fallback. */
   codeAwareChunking: boolean;
   /** Enable lexical/path reranking over vector-search candidates. */
@@ -202,17 +211,21 @@ export function loadConfig(): AppConfig {
       : pollingEnv === '1' || pollingEnv === 'true' || pollingEnv === 'yes';
   const pollingIntervalMs =
     Number.parseInt(process.env.CODEBASE_MCP_POLL_MS || '2000', 10) || 2000;
-  const rawForceInclude = process.env.CODEBASE_MCP_FORCE_INCLUDE?.trim() ?? '';
-  const forceIncludeRelPosix = (() => {
-    if (rawForceInclude === '') {
+  const rawWorkingDocs = process.env.CODEBASE_MCP_WORKING_DOCS_PATH?.trim() ?? '';
+  const workingDocsPathsRelPosix = (() => {
+    if (rawWorkingDocs === '') {
       return ['.claude/docs'];
     }
-    if (rawForceInclude === '-' || /^none$/i.test(rawForceInclude)) {
+    if (rawWorkingDocs === '-' || /^none$/i.test(rawWorkingDocs)) {
       return [];
     }
-    return parseForceIncludeList(process.env.CODEBASE_MCP_FORCE_INCLUDE);
+    return parseForceIncludeList(process.env.CODEBASE_MCP_WORKING_DOCS_PATH);
   })();
   const indexExcludeRelPosix = parseIndexExcludeList(process.env.CODEBASE_MCP_INDEX_EXCLUDE);
+  const searchExcludeForceInclude = parseBool(
+    process.env.CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE,
+    true,
+  );
   const codeAwareChunking = parseBool(process.env.CODEBASE_MCP_CODE_AWARE_CHUNKING, true);
   const rerankEnabled = parseBool(process.env.CODEBASE_MCP_RERANK, true);
   const rerankCandidates =
@@ -327,8 +340,9 @@ export function loadConfig(): AppConfig {
       Number.parseInt(process.env.CODEBASE_MCP_RECONCILE_MS || `${5 * 60 * 1000}`, 10) || 5 * 60 * 1000,
     usePolling,
     pollingIntervalMs,
-    forceIncludeRelPosix,
+    workingDocsPathsRelPosix,
     indexExcludeRelPosix,
+    searchExcludeForceInclude,
     codeAwareChunking,
     rerankEnabled,
     rerankCandidates,

@@ -208,7 +208,7 @@ export class Indexer {
     if (isIgnored(this.indexExclude, rel, false)) {
       return;
     }
-    if (isIgnored(this.ig, rel, false) && !isCoveredByForceInclude(rel, this.config.forceIncludeRelPosix)) {
+    if (isIgnored(this.ig, rel, false) && !isCoveredByForceInclude(rel, this.config.workingDocsPathsRelPosix)) {
       return;
     }
     if (!shouldConsiderExtension(absPath)) {
@@ -399,7 +399,7 @@ export class Indexer {
       this.config.watchRootAbs,
       this.config.watchRootAbs,
       this.ig,
-      this.config.forceIncludeRelPosix,
+      this.config.workingDocsPathsRelPosix,
       this.indexExclude,
     );
     this.indexPassCount = 0;
@@ -447,7 +447,7 @@ export class Indexer {
         this.config.watchRootAbs,
         this.config.watchRootAbs,
         this.ig,
-        this.config.forceIncludeRelPosix,
+        this.config.workingDocsPathsRelPosix,
         this.indexExclude,
       ),
     );

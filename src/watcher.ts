@@ -68,7 +68,7 @@ function shouldIgnoreWatchPath(
 
 export function startWatcher(config: AppConfig, indexer: Indexer, indexExclude: Ignore) {
   const ignored = (p: string, stats?: { isDirectory: () => boolean }): boolean =>
-    shouldIgnoreWatchPath(config.watchRootAbs, p, config.forceIncludeRelPosix, indexExclude, stats);
+    shouldIgnoreWatchPath(config.watchRootAbs, p, config.workingDocsPathsRelPosix, indexExclude, stats);
 
   const watcher = chokidar.watch(config.watchRootAbs, {
     persistent: true,
@@ -101,7 +101,7 @@ export function startWatcher(config: AppConfig, indexer: Indexer, indexExclude: 
       return;
     }
     const filePath = path.resolve(rawPath);
-    if (shouldIgnoreWatchPath(config.watchRootAbs, filePath, config.forceIncludeRelPosix, indexExclude, undefined)) {
+    if (shouldIgnoreWatchPath(config.watchRootAbs, filePath, config.workingDocsPathsRelPosix, indexExclude, undefined)) {
       return;
     }
     if (event === 'unlink') {

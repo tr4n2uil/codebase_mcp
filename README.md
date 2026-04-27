@@ -2,7 +2,7 @@
 
 _Cursor for Claude Code_
 
-Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules; by default **`CODEBASE_MCP_FORCE_INCLUDE`** includes **`.claude/docs`** so that tree can be indexed even if gitignored), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`** by default (override with **`CODEBASE_MCP_INDEX_DIR`**), and exposes **MCP tools** for agents.
+Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules; by default **`CODEBASE_MCP_WORKING_DOCS_PATH`** includes **`.claude/docs`** so that tree can be indexed even if gitignored), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`** by default (override with **`CODEBASE_MCP_INDEX_DIR`**), and exposes **MCP tools** for agents.
 
 **Architecture** (diagrams, subsystems, IPC, storage): see **[`docs/architecture/README.md`](docs/architecture/README.md)**.
 
@@ -50,7 +50,7 @@ is there feature flag integrated?
 
 | Tool | Description |
 |------|-------------|
-| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`); response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
+| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`, `ext` / `lang` / `glob` to scope paths); response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
 | `codebase_stats` | Chunk count, indexed file count, model, last scan time |
 | `codebase_reindex` | Optional `path` to reindex one file; omit for full **reconcile** |
 
@@ -106,9 +106,12 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_FRONTEND_PATH_QUERY_BOOST` | `true` | **MCP** | When the query looks UI/React/TS–oriented, **boost** common frontend paths (e.g. `.tsx`, `components/`, `app/javascript/`). Set `0` to disable. |
 | `CODEBASE_MCP_VERBOSE` | `true` | **Daemon** | Per-file indexer logs. |
 | `CODEBASE_MCP_LOG_TOOLS` | `true` | **MCP** | Log each MCP tool invocation to stderr. |
-| `CODEBASE_MCP_FORCE_INCLUDE` | `.claude/docs` | **Daemon** | Comma- or newline-separated **repo-relative** paths indexed even if `.gitignore` would skip them. Default alone includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra includes). **Not used for search**; set on the **daemon** env (or the single process when `CODEBASE_MCP_NO_DAEMON=1`). |
-| `CODEBASE_MCP_INDEX_EXCLUDE` | _(empty)_ | **Daemon** | Comma- or newline-separated **gitignore-style** patterns (repo-relative POSIX) to **skip indexing** without editing `.gitignore`. Overrides `CODEBASE_MCP_FORCE_INCLUDE` on matches. **Restart the daemon** after changing. Example for VCR/WebMock: `spec/vcr_cassettes/**, **/cassettes/**, **/fixtures/cassettes/**`. |
+| `CODEBASE_MCP_WORKING_DOCS_PATH` | `.claude/docs` | **Daemon** (list must **match the MCP** if you rely on `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE`; see that row) | Comma- or newline-separated **repo-relative** path prefixes indexed even if `.gitignore` would skip them. Default includes **`.claude/docs`**. Set to **`-`** or **`none`** to clear the list (no extra “working docs” include). Unscoped `codebase_search` **omits** hits under these paths (see `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE`); they still **can** be searched with an explicit `path_prefix` (or a prefix that includes them, e.g. `.claude/`). |
+| `CODEBASE_MCP_INDEX_EXCLUDE` | _(empty)_ | **Daemon** | Comma- or newline-separated **gitignore-style** patterns (repo-relative POSIX) to **skip indexing** without editing `.gitignore`. Overrides `CODEBASE_MCP_WORKING_DOCS_PATH` on matches. **Restart the daemon** after changing. Example for VCR/WebMock: `spec/vcr_cassettes/**, **/cassettes/**, **/fixtures/cassettes/**`. |
+| `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE` | `true` | **MCP** | When `true` (default), unscoped `codebase_search` **excludes** chunks under paths in `CODEBASE_MCP_WORKING_DOCS_PATH` (so plans/docs trees do not crowd generic code queries). Chunks are still indexed. Set a non-empty `path_prefix` that **covers** that tree to search it (e.g. `.claude/docs`). The MCP process must use the **same** `CODEBASE_MCP_WORKING_DOCS_PATH` as the daemon (or both defaults) so the exclusion set matches. Set `0` to include those paths in unscoped search. |
 | `CODEBASE_MCP_NO_DAEMON` | _(unset)_ | **MCP** | If `1`/`true`/`yes`, run watcher + indexer + MCP in **one** process (no separate daemon). |
+
+`CODEBASE_MCP_WORKING_DOCS_PATH` **replaces** the former `CODEBASE_MCP_FORCE_INCLUDE`; the old variable is no longer read. Rename it in your daemon and MCP (if applicable) when upgrading.
 
 Lower-CPU, less code-aware alternative (previous default):
 
@@ -127,7 +130,7 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
 
 ## Cursor MCP config example
 
-The `env` object applies to the **MCP** process only. At minimum set **`CODEBASE_MCP_ROOT`** (and override **`CODEBASE_MCP_INDEX_DIR`** if needed). **Indexing** options such as **`CODEBASE_MCP_FORCE_INCLUDE`** must be set on the **daemon** (see *Start the daemon* above), not here, unless you use **`CODEBASE_MCP_NO_DAEMON=1`**.
+The `env` object applies to the **MCP** process only. At minimum set **`CODEBASE_MCP_ROOT`** (and override **`CODEBASE_MCP_INDEX_DIR`** if needed). **Indexing** options such as **`CODEBASE_MCP_WORKING_DOCS_PATH`** must be set on the **daemon** (see *Start the daemon* above), not here, unless you use **`CODEBASE_MCP_NO_DAEMON=1`**. If you customize `CODEBASE_MCP_WORKING_DOCS_PATH`, set the **same value on the MCP** as well so `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE` applies to the right paths.
 
 ```json
 {
@@ -143,17 +146,17 @@ The `env` object applies to the **MCP** process only. At minimum set **`CODEBASE
 }
 ```
 
-**Daemon** (separate terminal), same index — example including force-include for gitignored trees:
+**Daemon** (separate terminal), same index — example including working-docs paths for gitignored trees:
 
 ```bash
 export CODEBASE_MCP_ROOT=/absolute/path/to/your/repo
-export CODEBASE_MCP_FORCE_INCLUDE="path/inside/gitignored/tree"
+export CODEBASE_MCP_WORKING_DOCS_PATH="path/inside/gitignored/tree"
 npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
 ```
 
 ## Claude Code MCP config example
 
-Same as Cursor: MCP `env` is for the stdio server; put **`CODEBASE_MCP_FORCE_INCLUDE`** (and other **Daemon** rows from the table) on the **daemon** process.
+Same as Cursor: MCP `env` is for the stdio server; put **`CODEBASE_MCP_WORKING_DOCS_PATH`** (and other **Daemon** rows from the table) on the **daemon** process.
 
 ```json
 {

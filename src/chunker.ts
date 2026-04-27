@@ -48,6 +48,9 @@ export async function buildLinesArray(content: string): Promise<string[]> {
   return lines;
 }
 
+const LINE_WINDOW_CHUNKS_YIELD_EVERY = 150;
+
+/** Sync: small/medium line counts only. */
 export function chunkByLinesFromLines(
   lines: string[],
   chunkLines: number,
@@ -73,13 +76,50 @@ export function chunkByLinesFromLines(
   return chunks;
 }
 
+/**
+ * Long files produce many line windows; `slice`+`join` per window can block the event loop
+ * (daemon IPC) for a long time without this.
+ */
+export async function chunkByLinesFromLinesWithYields(
+  lines: string[],
+  chunkLines: number,
+  overlapLines: number,
+): Promise<TextChunk[]> {
+  if (lines.length === 0) {
+    return [];
+  }
+  if (lines.length < 20_000) {
+    return chunkByLinesFromLines(lines, chunkLines, overlapLines);
+  }
+  const step = Math.max(1, chunkLines - overlapLines);
+  const chunks: TextChunk[] = [];
+  let k = 0;
+  for (let start = 0; start < lines.length; start += step) {
+    if (k > 0 && k % LINE_WINDOW_CHUNKS_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
+    k += 1;
+    const end = Math.min(start + chunkLines, lines.length);
+    const slice = lines.slice(start, end);
+    chunks.push({
+      startLine: start + 1,
+      endLine: end,
+      text: slice.join('\n'),
+    });
+    if (end >= lines.length) {
+      break;
+    }
+  }
+  return chunks;
+}
+
 export async function chunkByLines(
   content: string,
   chunkLines: number,
   overlapLines: number,
 ): Promise<TextChunk[]> {
   const lines = await buildLinesArray(content);
-  return chunkByLinesFromLines(lines, chunkLines, overlapLines);
+  return chunkByLinesFromLinesWithYields(lines, chunkLines, overlapLines);
 }
 
 interface SymbolSpan {
@@ -176,16 +216,21 @@ function sliceText(lines: string[], startLine: number, endLine: number): string 
   return lines.slice(startLine - 1, endLine).join('\n');
 }
 
-function splitLargeSymbolChunk(
+async function splitLargeSymbolChunk(
   lines: string[],
   chunkLines: number,
   symbol: SymbolSpan,
   startLine: number,
   endLine: number,
-): TextChunk[] {
+): Promise<TextChunk[]> {
   const out: TextChunk[] = [];
   let cursor = startLine;
+  let n = 0;
   while (cursor <= endLine) {
+    n += 1;
+    if (n > 1 && n % LINE_WINDOW_CHUNKS_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
     const chunkEnd = Math.min(cursor + chunkLines - 1, endLine);
     out.push({
       startLine: cursor,
@@ -212,7 +257,8 @@ export async function chunkCodeAware(
   const language = detectLanguage(filePath);
   const symbols = await extractSymbols(lines, language);
   if (symbols.length === 0) {
-    return chunkByLinesFromLines(lines, chunkLines, overlapLines).map((c) => ({ ...c, language }));
+    const raw = await chunkByLinesFromLinesWithYields(lines, chunkLines, overlapLines);
+    return raw.map((c) => ({ ...c, language }));
   }
 
   const chunks: TextChunk[] = [];
@@ -238,7 +284,7 @@ export async function chunkCodeAware(
     }
     const symbolChunks =
       endLine - startLine + 1 > chunkLines
-        ? splitLargeSymbolChunk(lines, chunkLines, current, startLine, endLine)
+        ? await splitLargeSymbolChunk(lines, chunkLines, current, startLine, endLine)
         : [
             {
               startLine,

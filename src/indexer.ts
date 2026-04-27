@@ -105,6 +105,10 @@ export class Indexer {
   private fullScanStatSkips = 0;
   /** In the current `fullScan`, how many files read+hashed, content same as `meta` (CPU-heavy, no embed). */
   private fullScanHashSkips = 0;
+  /** Set during `fullScan()` for `(n of N)` log suffixes. */
+  private fullScanTotal = 0;
+  /** Current 1-based position in the full-scan file list (set when each file starts). */
+  private fullScanOrdinal = 0;
 
   constructor(
     private readonly config: AppConfig,
@@ -134,7 +138,18 @@ export class Indexer {
     this.meta.fileStatCache[rel] = { size: st.size, mtimeMs: st.mtimeMs };
   }
 
+  /** e.g. ` (3/1200)` for full scan; empty for watcher-only jobs. */
+  private fullScanFileProgress(source: IndexFileSource): string {
+    if (source !== 'fullscan' || this.fullScanTotal <= 0) {
+      return '';
+    }
+    return ` (${this.fullScanOrdinal}/${this.fullScanTotal})`;
+  }
+
   async indexAbsoluteFile(absPath: string, source: IndexFileSource = 'watcher'): Promise<void> {
+    if (source === 'fullscan') {
+      this.fullScanOrdinal += 1;
+    }
     try {
       await this.runIndexAbsoluteFileBody(absPath, source);
     } finally {
@@ -146,9 +161,11 @@ export class Indexer {
           const h = this.fullScanHashSkips;
           const e = this.indexPassCount;
           const other = n - st - h - e;
+          const ofTotal =
+            this.fullScanTotal > 0 ? ` of ${this.fullScanTotal} total` : '';
           logInfo(
             'indexer',
-            `full scan: ${n} queued file(s) done; stat-skip ${st}; read+hash unchanged ${h} (uses CPU: read+sha256, no re-embed); re-embed ${e}; other ${other}`,
+            `full scan: ${n}${ofTotal} queued file(s) done; stat-skip ${st}; read+hash unchanged ${h} (uses CPU: read+sha256, no re-embed); re-embed ${e}; other ${other}`,
           );
         }
       }
@@ -179,7 +196,10 @@ export class Indexer {
     }
     if (st.size > this.config.maxFileBytes) {
       if (this.config.logIndexEachFile) {
-        logInfo('indexer', `skip (too large, ${st.size} bytes): ${rel}`);
+        logInfo(
+          'indexer',
+          `skip (too large, ${st.size} bytes): ${rel}${this.fullScanFileProgress(source)}`,
+        );
       }
       return;
     }
@@ -193,10 +213,9 @@ export class Indexer {
       if (source === 'fullscan') {
         this.fullScanStatSkips += 1;
       }
-      logInfo('indexer', `${rel}  [stat cache — no read]`);
+      logInfo('indexer', `${rel}${this.fullScanFileProgress(source)}  [stat cache — no read]`);
       return;
     }
-    logInfo('indexer', `${rel}  [read]`);
     let content: string;
     try {
       content = await fs.readFile(absPath, 'utf8');
@@ -210,20 +229,22 @@ export class Indexer {
       if (source === 'fullscan') {
         this.fullScanHashSkips += 1;
       }
-      logInfo('indexer', `${rel}  [hash match meta — no re-embed]`);
       if (source === 'watcher') {
         await this.persistMeta();
       }
       return;
     }
-    logInfo('indexer', `${rel}  [re-embed: chunk + embed]`);
+    logInfo('indexer', `${rel}${this.fullScanFileProgress(source)}  [re-embed: chunk + embed]`);
     if (content.length > 1_200_000) {
       logInfo(
         'indexer',
-        `large file (${(content.length / 1_000_000).toFixed(1)}M chars) — full-scan “rechecked N” will advance after it finishes; chunking yields to IPC in chunks`,
+        `large file (${(content.length / 1_000_000).toFixed(1)}M chars)${this.fullScanFileProgress(source)} — full-scan “rechecked N” will advance after it finishes; chunking yields to IPC in chunks`,
       );
     }
-    const extractor = await getEmbedder(this.config);
+    logInfo(
+      'indexer',
+      `${rel}${this.fullScanFileProgress(source)}  [chunking: split / symbols — no embedding model until chunks exist]`,
+    );
     if (content.length > 300_000) {
       await yieldToEventLoop();
     }
@@ -234,7 +255,10 @@ export class Indexer {
       await yieldToEventLoop();
     }
     if (chunks.length === 0) {
-      logInfo('indexer', `${rel}  [no chunks after split — store cleared for path]`);
+      logInfo(
+        'indexer',
+        `${rel}${this.fullScanFileProgress(source)}  [no chunks after split — store cleared for path]`,
+      );
       await this.store.deleteByPath(rel);
       this.meta.fileHashes[rel] = hash;
       this.setFileStatCache(rel, st);
@@ -243,10 +267,18 @@ export class Indexer {
       }
       return;
     }
+    logInfo(
+      'indexer',
+      `${rel}${this.fullScanFileProgress(source)}  [chunking done: ${chunks.length} chunk(s) — next: load embed model if first use, then run inference]`,
+    );
+    const extractor = await getEmbedder(this.config);
     const batchSize = 8;
     const totalBatches = Math.max(1, Math.ceil(chunks.length / batchSize));
     if (!this.config.logIndexEachFile) {
-      logInfo('indexer', `re-embedding ${rel} (${chunks.length} chunks, ${totalBatches} batch${totalBatches === 1 ? '' : 'es'})…`);
+      logInfo(
+        'indexer',
+        `embedding run ${rel}${this.fullScanFileProgress(source)} (${chunks.length} chunks, ${totalBatches} batch${totalBatches === 1 ? '' : 'es'})…`,
+      );
     }
     const texts: string[] = [];
     for (let j = 0; j < chunks.length; j++) {
@@ -261,9 +293,16 @@ export class Indexer {
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
-      if (totalBatches > 1 && !this.config.logIndexEachFile) {
-        if (batchNum === 1 || batchNum === totalBatches || batchNum % 5 === 0) {
-          logInfo('indexer', `embedding ${rel}: batch ${batchNum}/${totalBatches}`);
+      if (!this.config.logIndexEachFile) {
+        const logBatch =
+          batchNum === 1 ||
+          batchNum === totalBatches ||
+          (totalBatches > 1 && batchNum % 5 === 0);
+        if (logBatch) {
+          logInfo(
+            'indexer',
+            `embedding ${rel}${this.fullScanFileProgress(source)}: batch ${batchNum}/${totalBatches}`,
+          );
         }
       }
       const part = await embedTexts(extractor, batch, this.config.embeddingDim);
@@ -286,7 +325,10 @@ export class Indexer {
     this.meta.lastFullScanAt = new Date().toISOString();
     await this.persistMeta();
     this.indexPassCount += 1;
-    logInfo('indexer', `${rel}  [embed done: ${chunks.length} chunk(s)]`);
+    logInfo(
+      'indexer',
+      `${rel}${this.fullScanFileProgress(source)}  [embed done: ${chunks.length} chunk(s)]`,
+    );
     if (!this.config.logIndexEachFile && this.indexPassCount % 10 === 0) {
       logInfo('indexer', `progress: ${this.indexPassCount} file(s) re-indexed in this pass (last: ${rel})`);
     }
@@ -324,6 +366,8 @@ export class Indexer {
     this.fullScanFilesCompleted = 0;
     this.fullScanStatSkips = 0;
     this.fullScanHashSkips = 0;
+    this.fullScanOrdinal = 0;
+    this.fullScanTotal = files.length;
     logInfo(
       'indexer',
       `full scan: rechecking ${files.length} file(s) under ${this.config.watchRootAbs} (unchanged: stat cache in meta skips read; content hash skips re-embed)`,
@@ -338,6 +382,8 @@ export class Indexer {
       'indexer',
       `full scan: queue drained; stat-skip ${this.fullScanStatSkips}; read+hash unchanged ${this.fullScanHashSkips}; re-embedded ${this.indexPassCount} (one meta.json write at end)`,
     );
+    this.fullScanTotal = 0;
+    this.fullScanOrdinal = 0;
   }
 
   getSnapshotStats(): {

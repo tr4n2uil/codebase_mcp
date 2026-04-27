@@ -1,7 +1,16 @@
 /**
  * All messages go to stderr so they are mirrored to `<indexDir>/.logs/mcp.log` or `daemon.log` by `initFileLogging()` (each file line is prefixed with `[pid=…] `).
  */
-export type LogScope = 'daemon' | 'mcp' | 'indexer' | 'chunker' | 'ipc' | 'bootstrap' | 'embedder' | 'watcher';
+export type LogScope =
+  | 'daemon'
+  | 'mcp'
+  | 'indexer'
+  | 'chunker'
+  | 'ipc'
+  | 'bootstrap'
+  | 'embedder'
+  | 'cross-encoder'
+  | 'watcher';
 
 export function logInfo(scope: LogScope, message: string): void {
   console.error(`[codebase-mcp] [${scope}] ${message}`);

@@ -134,6 +134,22 @@ export interface AppConfig {
   ortSequential: boolean;
   /** When wasm backend is used, `wasm.numThreads` (Transformers). Default 1. */
   ortWasmNumThreads: number;
+  /**
+   * When true, run a **cross-encoder** (e.g. BGE-reranker) on the top K heuristic/hybrid results and
+   * re-order before returning. Second ONNX model; first use downloads weights. `CODEBASE_MCP_CROSS_ENCODER=1`.
+   */
+  crossEncoderEnabled: boolean;
+  /** Hugging Face / Xenova id for the cross-encoder ONNX model. Default: `Xenova/bge-reranker-base`. */
+  crossEncoderModel: string;
+  /**
+   * How many top candidates (from hybrid + heuristic rerank) to score with the cross-encoder.
+   * At least `limit` and at most pool size. Default 50. `CODEBASE_MCP_CROSS_ENCODER_TOP_K`.
+   */
+  crossEncoderTopK: number;
+  /**
+   * Forward pass batch size for cross-encoder scoring. Default 4. `CODEBASE_MCP_CROSS_ENCODER_BATCH`.
+   */
+  crossEncoderBatch: number;
 }
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -288,6 +304,12 @@ export function loadConfig(): AppConfig {
   const ortSequential = parseBool(process.env.CODEBASE_MCP_ORT_SEQUENTIAL, true);
   const ortW = Number.parseInt(process.env.CODEBASE_MCP_ORT_WASM_NUM_THREADS || '1', 10);
   const ortWasmNumThreads = Math.min(32, Math.max(1, Number.isFinite(ortW) && ortW > 0 ? ortW : 1));
+  const crossEncoderEnabled = parseBool(process.env.CODEBASE_MCP_CROSS_ENCODER, false);
+  const crossEncoderModel = process.env.CODEBASE_MCP_CROSS_ENCODER_MODEL?.trim() || 'Xenova/bge-reranker-base';
+  const rawCeTopK = Number.parseInt(process.env.CODEBASE_MCP_CROSS_ENCODER_TOP_K || '50', 10);
+  const crossEncoderTopK = Math.min(200, Math.max(1, Number.isFinite(rawCeTopK) && rawCeTopK > 0 ? rawCeTopK : 50));
+  const rawCeBatch = Number.parseInt(process.env.CODEBASE_MCP_CROSS_ENCODER_BATCH || '4', 10);
+  const crossEncoderBatch = Math.min(32, Math.max(1, Number.isFinite(rawCeBatch) && rawCeBatch > 0 ? rawCeBatch : 4));
   return {
     watchRootAbs,
     indexDirAbs,
@@ -336,6 +358,10 @@ export function loadConfig(): AppConfig {
     ortInterOpThreads,
     ortSequential,
     ortWasmNumThreads,
+    crossEncoderEnabled,
+    crossEncoderModel,
+    crossEncoderTopK,
+    crossEncoderBatch,
   };
 }
 

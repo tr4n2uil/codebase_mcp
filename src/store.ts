@@ -23,6 +23,11 @@ export interface SearchHit {
   score: number;
   /** Heuristic: declared symbol at the start of this chunk (if indexed with code-aware chunking). */
   definition_of?: string;
+  /**
+   * Raw relevance logit from the optional cross-encoder reranker (higher = more relevant).
+   * Exposed in MCP when `CODEBASE_MCP_RERANK_DEBUG_SCORES=1` and cross-encoder ran.
+   */
+  cross_encoder_logit?: number;
 }
 
 export interface ChunkStoreSearchOptions {

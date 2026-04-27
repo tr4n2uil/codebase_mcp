@@ -1,6 +1,6 @@
 # Search & retrieval
 
-`codebase_search` embeds the **user query** with the same model used at index time, retrieves candidates from Lance, optionally applies **lexical reranking**, and returns JSON to the agent.
+`codebase_search` embeds the **user query** with the same model used at index time, retrieves candidates from Lance, optionally applies **heuristic reranking**, optionally a **cross-encoder** pass on the top-K pool (`CODEBASE_MCP_CROSS_ENCODER`), and returns JSON to the agent.
 
 ## Pipeline
 
@@ -15,13 +15,15 @@ flowchart TD
     F[RRFReranker: RRF fusion]
   end
   R[rerankSearchHits heuristics]
+  C[Optional: cross-encoder top-K to top-N]
   M[assessSearchMatchQuality]
   O[JSON: path, lines, score, snippet + optional match_confidence*]
   Q --> E
   E --> S
   S --> s1
   s1 --> R
-  R --> M
+  R --> C
+  C --> M
   M --> O
 ```
 
@@ -30,6 +32,7 @@ flowchart TD
 - **Candidate pool size** — `mcp-tools.ts` fetches at least `max(limit, CODEBASE_MCP_RERANK_CANDIDATES)` before rerank (see README defaults).
 - **Hybrid (default on)** — When `CODEBASE_MCP_HYBRID` is true, an FTS index exists on `text`, and the query string is non-empty, `ChunkStore` runs **vector + full-text** search with **Lance’s `RRFReranker`** (RRF). If hybrid fails or the FTS index is missing (e.g. pure read-only MCP never ran a writer), the store **falls back to vector-only** (no user-visible error).
 - **Rerank** — `rerank.ts` reorders hits using a weighted blend of vector/hybrid `score` plus **lexical** match, path hints, **built-in path priors** (e.g. prefer `src/`, de-prioritize `spec/` / `test/` for *generic* queries), **optional flip to boost** those test trees when the query mentions `test` / `spec` / RSpec / Jest / … (`CODEBASE_MCP_TEST_PATH_QUERY_BOOST`), and optional **`CODEBASE_MCP_RERANK_DEMOTE_PATHS`**. Toggle with `CODEBASE_MCP_RERANK`.
+- **Cross-encoder (optional)** — `cross-encoder-rerank.ts` (Transformers.js / ONNX) scores **(query, chunk text)** for the first **K** hits after `rerankSearchHits`, then returns the best **N** = `limit`. Enable with **`CODEBASE_MCP_CROSS_ENCODER=1`** (default off). Replaces the displayed `score` with **sigmoid(logit)**; adds `cross_encoder_logit` in JSON when **`CODEBASE_MCP_RERANK_DEBUG_SCORES=1`**. On load/inference error, the pipeline **falls back** to the heuristic list.
 
 ## Tool surface
 
@@ -50,6 +53,7 @@ flowchart TD
 - `mcp.ts` — Tool registration, Zod input schemas, backend wiring
 - `store.ts` — `search({ queryVector, queryText, limit, pathPrefix })`
 - `rerank.ts` — `rerankSearchHits`
+- `cross-encoder-rerank.ts` — optional BGE-style rerank
 - `search-confidence.ts` — `assessSearchMatchQuality` (MCP output fields)
 - `definition-intent.ts` — `parseDefinitionIntentQuery`, `orderHitsByDefinitionBoost`
 - `embedder.ts` — `getEmbedder`, `embedTexts`

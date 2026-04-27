@@ -1,12 +1,16 @@
 import path from 'node:path';
 import { embedTexts, getEmbedder } from './embedder.js';
 import type { AppConfig } from './config.js';
+import { makeCrossEncoderPoolK, runCrossEncoderRerank } from './cross-encoder-rerank.js';
 import type { Indexer } from './indexer.js';
 import { readMeta } from './meta.js';
+import { logError } from './log.js';
 import type { ChunkStore } from './store.js';
 import { orderHitsByDefinitionBoost, parseDefinitionIntentQuery } from './definition-intent.js';
 import { rerankSearchHits } from './rerank.js';
 import type { RerankedHit } from './rerank.js';
+import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
+import type { SearchHit } from './store.js';
 
 function rerankScoreForPayload(h: SearchHit | RerankedHit): number | undefined {
   if (!('rerank_score' in h)) {
@@ -15,8 +19,6 @@ function rerankScoreForPayload(h: SearchHit | RerankedHit): number | undefined {
   const v = (h as RerankedHit).rerank_score;
   return typeof v === 'number' ? v : undefined;
 }
-import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
-import type { SearchHit } from './store.js';
 
 export type McpTextContent = { type: 'text'; text: string };
 
@@ -27,6 +29,8 @@ export interface CodebaseSearchHitPayload {
   score: number;
   definition_of?: string;
   rerank_score?: number;
+  /** Raw logit when cross-encoder ran and `CODEBASE_MCP_RERANK_DEBUG_SCORES=1`. */
+  cross_encoder_logit?: number;
   snippet: string;
 }
 
@@ -82,7 +86,35 @@ export async function codebaseSearchPayload(
   } else if (defTarget) {
     ranked = orderHitsByDefinitionBoost(hits, defTarget, defBoost);
   }
-  const topHits = ranked.slice(0, lim);
+  const toSearchHits = (r: (SearchHit | RerankedHit)[]): SearchHit[] =>
+    r.map((h) => ({
+      path: h.path,
+      start_line: h.start_line,
+      end_line: h.end_line,
+      text: h.text,
+      score: h.score,
+      ...(h.definition_of ? { definition_of: h.definition_of } : {}),
+    }));
+  let topHits: (SearchHit | RerankedHit)[] = ranked.slice(0, lim);
+  if (config.crossEncoderEnabled) {
+    const poolK = makeCrossEncoderPoolK(config, ranked.length, lim);
+    if (poolK > 0) {
+      try {
+        const ce = await runCrossEncoderRerank(
+          config,
+          args.query,
+          toSearchHits(ranked as (SearchHit | RerankedHit)[]),
+          poolK,
+          lim,
+        );
+        if (ce.length > 0) {
+          topHits = ce;
+        }
+      } catch (e) {
+        logError('cross-encoder', 'rerank failed; using heuristic / vector order', e);
+      }
+    }
+  }
   const assessment = config.searchMatchConfidence
     ? assessSearchMatchQuality(topHits, {
         rerankEnabled: config.rerankEnabled,
@@ -96,6 +128,10 @@ export async function codebaseSearchPayload(
     : null;
   const hitPayloads: CodebaseSearchHitPayload[] = topHits.map((h) => {
     const rs = config.rerankDebugScores ? rerankScoreForPayload(h) : undefined;
+    const ceLog =
+      config.rerankDebugScores && h.cross_encoder_logit !== undefined && Number.isFinite(h.cross_encoder_logit)
+        ? h.cross_encoder_logit
+        : undefined;
     return {
       path: h.path,
       start_line: h.start_line,
@@ -103,6 +139,7 @@ export async function codebaseSearchPayload(
       score: h.score,
       ...(h.definition_of ? { definition_of: h.definition_of } : {}),
       ...(rs !== undefined ? { rerank_score: rs } : {}),
+      ...(ceLog !== undefined ? { cross_encoder_logit: ceLog } : {}),
       snippet: h.text.length > 4000 ? `${h.text.slice(0, 4000)}…` : h.text,
     };
   });

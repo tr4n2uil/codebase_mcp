@@ -89,7 +89,11 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_HYBRID_DEPTH` | `max(100, RERANK_CANDIDATES)` | **MCP** | How many results to request per leg before RRF. Override for large candidate pools. |
 | `CODEBASE_MCP_RERANK_DEMOTE_PATHS` | _(empty)_ | **MCP** | Comma- or newline-separated **substrings** of repo-relative paths (case-insensitive) that **lower rank** in the reranker (e.g. cassettes/specs) without removing them from the index. Example: `vcr_cassettes,spec/cassettes,__snapshots__`. |
 | `CODEBASE_MCP_RERANK_DEMOTE_STRENGTH` | `0.1` | **MCP** | Per matching substring, subtracts from the path component of the rerank score (capped there). `0` disables the extra penalty (built-in heuristics like `codePathPrior` still apply). |
-| `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | **MCP** | Expose `rerank_score` in search output. |
+| `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | **MCP** | Expose `rerank_score` in search output. When cross-encoder is on, also exposes `cross_encoder_logit`. |
+| `CODEBASE_MCP_CROSS_ENCODER` | `false` | **MCP** | `1`/`true`: after hybrid + heuristic rerank, re-order the top pool with a **cross-encoder** (default model `Xenova/bge-reranker-base`). Second ONNX model; first use may download weights. Improves top-1 quality at extra latency. |
+| `CODEBASE_MCP_CROSS_ENCODER_MODEL` | `Xenova/bge-reranker-base` | **MCP** | Transformers.js–compatible cross-encoder id (ONNX on Hugging Face, e.g. **`Xenova/bge-reranker-base`**). |
+| `CODEBASE_MCP_CROSS_ENCODER_TOP_K` | `50` | **MCP** | Score at most this many top candidates with the cross-encoder (capped by pool size; at least `limit`). |
+| `CODEBASE_MCP_CROSS_ENCODER_BATCH` | `4` | **MCP** | Batch size for cross-encoder forward passes. |
 | `CODEBASE_MCP_MATCH_CONFIDENCE` | `true` | **MCP** | When true, `codebase_search` JSON adds `match_confidence` (heuristic high / medium / low), `match_confidence_reasons`, `match_confidence_hint`, `top_primary_score`, and `top_relative_separation` so callers can tell weak or ambiguous top hits from a stronger single winner. Set `0` to omit. |
 | `CODEBASE_MCP_MATCH_CONF_WEAK` | `0.35` if `CODEBASE_MCP_RERANK` is on, else `0.18` | **MCP** | Primary score (rerank or retriever) below this → `low` confidence. |
 | `CODEBASE_MCP_MATCH_CONF_STRONG` | `0.55` (rerank on) or `0.4` (off) | **MCP** | Primary score at/above this can contribute to `high` (with enough top-1 vs top-2 gap). If ≤ weak, strong is raised to weak + 0.01. |

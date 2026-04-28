@@ -94,33 +94,43 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     name: 'codebase-mcp',
     version: '1.0.0',
   });
+  const codebaseSearchDescription =
+    'Semantic search over the indexed repository: query embedded in-process; returns chunks (path, lines, snippet, scores, optional `match_confidence` / `definition_of`). Unscoped search may drop “working docs” (e.g. under `.claude/docs`); use optional args to scope, include those paths, or filter by file shape. Several filters together use AND.';
+  const codebaseSearchInputSchema = {
+    query: z.string().min(1).describe('Search text'),
+    limit: z.number().int().min(1).max(50).optional().describe('Result cap (default 10)'),
+    path_prefix: z.string().optional().describe('Repo-relative path prefix (POSIX)'),
+    include_docs: z
+      .boolean()
+      .optional()
+      .describe('When true, unscoped search also searches working-doc trees; ignored if `path_prefix` is set'),
+    ext: z
+      .union([z.string().min(1), z.array(z.string().min(1))])
+      .optional()
+      .describe('Allow only these file extensions (comma-separated or list)'),
+    lang: z
+      .string()
+      .optional()
+      .describe('Known language name (e.g. `ruby`); unknown → error'),
+    glob: z
+      .string()
+      .optional()
+      .describe('Glob filter (grep-like): `*.rb` matches nested Ruby files too; path globs like `app/**/*.rb` also work'),
+  };
 
   server.registerTool(
     'codebase_search',
     {
-      description:
-        'Semantic search over the indexed repository: query embedded in-process; returns chunks (path, lines, snippet, scores, optional `match_confidence` / `definition_of`). Unscoped search may drop “working docs” (e.g. under `.claude/docs`); use optional args to scope, include those paths, or filter by file shape. Several filters together use AND.',
-      inputSchema: {
-        query: z.string().min(1).describe('Search text'),
-        limit: z.number().int().min(1).max(50).optional().describe('Result cap (default 10)'),
-        path_prefix: z.string().optional().describe('Repo-relative path prefix (POSIX)'),
-        include_docs: z
-          .boolean()
-          .optional()
-          .describe('When true, unscoped search also searches working-doc trees; ignored if `path_prefix` is set'),
-        ext: z
-          .union([z.string().min(1), z.array(z.string().min(1))])
-          .optional()
-          .describe('Allow only these file extensions (comma-separated or list)'),
-        lang: z
-          .string()
-          .optional()
-          .describe('Known language name (e.g. `ruby`); unknown → error'),
-        glob: z
-          .string()
-          .optional()
-          .describe('Picomatch on repo-relative paths'),
-      },
+      description: codebaseSearchDescription,
+      inputSchema: codebaseSearchInputSchema,
+    },
+    async (args) => b.codebase_search(args),
+  );
+  server.registerTool(
+    'codebase_find',
+    {
+      description: 'Alias of `codebase_search` for discoverability by code-search oriented agents.',
+      inputSchema: codebaseSearchInputSchema,
     },
     async (args) => b.codebase_search(args),
   );

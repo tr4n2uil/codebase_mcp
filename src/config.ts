@@ -18,6 +18,12 @@ export interface AppConfig {
   metaPathAbs: string;
   embeddingModel: string;
   embeddingDim: number;
+  /** Embedding backend: `local` (Transformers.js ONNX) or `http` (external embedding service). */
+  embedBackend: 'local' | 'http';
+  /** Base URL for HTTP embedding backend (used when `embedBackend === 'http'`). */
+  embedHttpUrl: string;
+  /** Optional bearer token for HTTP embedding backend. */
+  embedHttpApiKey?: string;
   /** Chunks per embedding call (1–32). Smaller = more progress logs, less RAM per op; CPU can still be slow. */
   embedBatchSize: number;
   /**
@@ -190,6 +196,10 @@ export function loadConfig(): AppConfig {
   const metaPathAbs = path.join(indexDirAbs, 'meta.json');
   const embeddingModel = process.env.CODEBASE_MCP_EMBEDDING_MODEL?.trim() || DEFAULT_MODEL;
   const embeddingDim = Number.parseInt(process.env.CODEBASE_MCP_EMBEDDING_DIM || '', 10);
+  const rawEmbedBackend = process.env.CODEBASE_MCP_EMBED_BACKEND?.trim().toLowerCase() ?? '';
+  const embedBackend: 'local' | 'http' = rawEmbedBackend === 'http' ? 'http' : 'local';
+  const embedHttpUrl = process.env.CODEBASE_MCP_EMBED_HTTP_URL?.trim() ?? '';
+  const embedHttpApiKey = process.env.CODEBASE_MCP_EMBED_HTTP_API_KEY?.trim() || undefined;
   const rawBatch = Number.parseInt(process.env.CODEBASE_MCP_EMBED_BATCH_SIZE || '4', 10);
   const embedBatchSize = Math.min(32, Math.max(1, Number.isFinite(rawBatch) ? rawBatch : 4));
   const rawInferLog = process.env.CODEBASE_MCP_EMBED_INFER_LOG_MS;
@@ -332,6 +342,9 @@ export function loadConfig(): AppConfig {
     metaPathAbs,
     embeddingModel,
     embeddingDim: Number.isFinite(embeddingDim) ? embeddingDim : DEFAULT_EMBEDDING_DIM,
+    embedBackend,
+    embedHttpUrl,
+    embedHttpApiKey,
     embedBatchSize,
     embedInferenceLogMs,
     chunkLines: Number.parseInt(process.env.CODEBASE_MCP_CHUNK_LINES || '60', 10) || 60,

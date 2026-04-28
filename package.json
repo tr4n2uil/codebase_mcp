@@ -8,10 +8,12 @@
     "codebase-mcp": "dist/main.js",
     "codebase-mcp-daemon": "dist/daemon-entry.js",
     "codebase-mcp-reindex": "dist/reindex-cli.js",
-    "codebase-mcp-install-claude": "dist/codebase-mcp-install-claude.js"
+    "codebase-mcp-install-claude": "dist/codebase-mcp-install-claude.js",
+    "codebase-mcp-embed-server": "scripts/codebase-mcp-embed-server.py"
   },
   "files": [
     "dist",
+    "scripts/codebase-mcp-embed-server.py",
     "README.md"
   ],
   "scripts": {

@@ -5,12 +5,30 @@ import { applyOrtSessionCpuCaps } from './onnx-ort-caps.js';
 
 type FeatureExtractor = (texts: string | string[], options?: object) => Promise<{ data: Float32Array; dims?: number[] }>;
 
-let extractorPromise: Promise<FeatureExtractor> | null = null;
+type Embedder =
+  | { kind: 'local'; extractor: FeatureExtractor }
+  | { kind: 'http'; url: string; model: string; apiKey?: string };
 
-export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
-  if (!extractorPromise) {
+let embedderPromise: Promise<Embedder> | null = null;
+
+export function getEmbedder(config: AppConfig): Promise<Embedder> {
+  if (!embedderPromise) {
+    if (config.embedBackend === 'http') {
+      if (!config.embedHttpUrl) {
+        throw new Error('CODEBASE_MCP_EMBED_BACKEND=http requires CODEBASE_MCP_EMBED_HTTP_URL');
+      }
+      const url = config.embedHttpUrl.replace(/\/+$/, '');
+      logInfo('embedder', `using HTTP backend at ${url}`);
+      embedderPromise = Promise.resolve({
+        kind: 'http',
+        url,
+        model: config.embeddingModel,
+        apiKey: config.embedHttpApiKey,
+      });
+      return embedderPromise;
+    }
     applyOrtSessionCpuCaps(config);
-    extractorPromise = (async () => {
+    embedderPromise = (async () => {
       // Dynamic import: ORT is patched in applyOrtSessionCpuCaps (before native + xenova see ORT).
       const { pipeline, env } = await import('@xenova/transformers');
       const w = (env as { backends?: { onnx?: { wasm?: { numThreads?: number } } } }).backends?.onnx
@@ -34,15 +52,15 @@ export function getEmbedder(config: AppConfig): Promise<FeatureExtractor> {
           config.embedInferenceLogMs,
         );
         logInfo('embedder', `ready: ${config.embeddingModel}`);
-        return ex;
+        return { kind: 'local' as const, extractor: ex };
       } catch (e) {
         logError('embedder', `failed to load ${config.embeddingModel}`, e);
-        extractorPromise = null;
+        embedderPromise = null;
         throw e;
       }
     })();
   }
-  return extractorPromise;
+  return embedderPromise;
 }
 
 function tensorToVectors(tensor: { data: Float32Array; dims?: number[] }, expectedDim: number): Float32Array[] {
@@ -90,7 +108,7 @@ function withInferencePendingLogs<T>(label: string, p: Promise<T>, intervalMs: n
 }
 
 export async function embedTexts(
-  extractor: FeatureExtractor,
+  embedder: Embedder,
   texts: string[],
   expectedDim: number,
   inferenceLogMs = 0,
@@ -103,10 +121,64 @@ export async function embedTexts(
     'embedder',
     `inference: ${texts.length} input(s), ~${(inputChars / 1024).toFixed(0)} KiB text (this can take a while; high CPU is normal)…`,
   );
-  const tensor = await withInferencePendingLogs(
-    'batch inference',
-    extractor(texts, { pooling: 'mean', normalize: true }),
-    inferenceLogMs,
-  );
-  return tensorToVectors(tensor, expectedDim);
+  if (embedder.kind === 'local') {
+    const tensor = await withInferencePendingLogs(
+      'batch inference',
+      embedder.extractor(texts, { pooling: 'mean', normalize: true }),
+      inferenceLogMs,
+    );
+    return tensorToVectors(tensor, expectedDim);
+  }
+
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (embedder.apiKey) {
+    headers.authorization = `Bearer ${embedder.apiKey}`;
+  }
+  const body = JSON.stringify({ input: texts, model: embedder.model });
+  const resp = await fetch(embedder.url, { method: 'POST', headers, body });
+  if (!resp.ok) {
+    const msg = await resp.text().catch(() => '');
+    throw new Error(`HTTP embed failed (${resp.status}): ${msg || resp.statusText}`);
+  }
+  const data = (await resp.json()) as unknown;
+  const rows = parseHttpEmbeddings(data);
+  const out = rows.map((row) => {
+    const v = Float32Array.from(row);
+    if (v.length !== expectedDim) {
+      throw new Error(`HTTP embedding dim mismatch: expected ${expectedDim}, got ${v.length}`);
+    }
+    return v;
+  });
+  if (out.length !== texts.length) {
+    throw new Error(`HTTP embedding count mismatch: expected ${texts.length}, got ${out.length}`);
+  }
+  return out;
+}
+
+function parseHttpEmbeddings(payload: unknown): number[][] {
+  if (Array.isArray(payload) && payload.every((r) => Array.isArray(r))) {
+    return payload as number[][];
+  }
+  if (payload && typeof payload === 'object') {
+    const p = payload as Record<string, unknown>;
+    if (Array.isArray(p.embeddings) && p.embeddings.every((r) => Array.isArray(r))) {
+      return p.embeddings as number[][];
+    }
+    if (Array.isArray(p.data)) {
+      const rows: number[][] = [];
+      for (const it of p.data) {
+        if (!it || typeof it !== 'object') {
+          continue;
+        }
+        const emb = (it as Record<string, unknown>).embedding;
+        if (Array.isArray(emb)) {
+          rows.push(emb as number[]);
+        }
+      }
+      if (rows.length > 0) {
+        return rows;
+      }
+    }
+  }
+  throw new Error('HTTP embedding response format not recognized');
 }

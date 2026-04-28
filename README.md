@@ -74,6 +74,9 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_INDEX_DIR` | `<CODEBASE_MCP_ROOT>/.claude/codebase_mcp/db` | **Both** | Where LanceDB + `meta.json` live (default: under the repo’s `.claude/` tree). Must match between MCP and daemon. Override for a custom path or CI cache. |
 | `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | **Both** | Model id. Must match stored index metadata; used for **query** embed (MCP) and **ingest** embed (daemon). |
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | **Both** | Vector dimension; must match model and index. |
+| `CODEBASE_MCP_EMBED_BACKEND` | `local` | **Both** | Embedding backend: `local` = Transformers.js ONNX in-process (default), `http` = external embedding service (TEI/Python/vLLM style). |
+| `CODEBASE_MCP_EMBED_HTTP_URL` | _(unset)_ | **Both** | Required when `CODEBASE_MCP_EMBED_BACKEND=http`: POST endpoint that returns embeddings for batched input text. |
+| `CODEBASE_MCP_EMBED_HTTP_API_KEY` | _(unset)_ | **Both** | Optional bearer token sent as `Authorization: Bearer ...` for the HTTP embedding backend. |
 | `CODEBASE_MCP_EMBED_BATCH_SIZE` | `4` | **Both** | Chunks (daemon) or batching behavior when embedding; query path uses batches too. |
 | `CODEBASE_MCP_EMBED_INFER_LOG_MS` | `20000` | **Both** | Heartbeat while ONNX runs (`0` = off). |
 | `CODEBASE_MCP_EMBED_DEF_TAG` | `true` | **Daemon** | When `1`/`true` (default), the indexer includes `def=…` in the text passed to the embedder. Set `0`/`false` for rerank-only: `definition_of` stays in Lance but vectors omit the definition label (re-embed to apply either way). |
@@ -131,6 +134,40 @@ export CODEBASE_MCP_EMBEDDING_DIM=384
 ```
 
 When changing embedding model/dimension or code-aware chunking behavior, use a fresh `CODEBASE_MCP_INDEX_DIR` (or reindex) to avoid mixing old and new vector/chunk layouts.
+
+Note: model ids must be compatible with the local Transformers.js ONNX loader. Some upstream HF repos (for example `jinaai/jina-embeddings-v3`) do not expose the expected ONNX artifacts for this runtime; in those cases use a supported Xenova-compatible model id.
+
+HTTP embedding backend format notes (`CODEBASE_MCP_EMBED_BACKEND=http`):
+- Request body: `{ "input": ["text1", "text2"], "model": "<CODEBASE_MCP_EMBEDDING_MODEL>" }`
+- Accepted response formats:
+  - OpenAI-style: `{ "data": [{ "embedding": [...] }, ...] }`
+  - Simple: `{ "embeddings": [[...], ...] }`
+  - Raw list: `[[...], ...]`
+
+Run a local HTTP embedding server (default model: `BAAI/bge-large-en-v1.5`):
+
+```bash
+./scripts/codebase-mcp-embed-server.py
+```
+
+The script auto-installs Python deps (`fastapi`, `uvicorn`, `sentence-transformers`, `einops`) via `pip` when missing.
+On macOS/Homebrew Python (PEP 668), it auto-creates and reuses a virtualenv at `~/.cache/codebase-mcp-embed-server/venv` (override with `EMBED_VENV_DIR`; disable with `EMBED_USE_VENV=0`).
+
+Optional server env:
+- `EMBED_MODEL` (default: `BAAI/bge-large-en-v1.5`)
+- `EMBED_DEVICE` (default: `cpu`)
+- `EMBED_HOST` (default: `127.0.0.1`)
+- `EMBED_PORT` (default: `8080`)
+- `EMBED_TRUST_REMOTE_CODE` (default: `1`; safe to leave on; some custom-code models require it)
+
+Then point codebase-mcp at it:
+
+```bash
+export CODEBASE_MCP_EMBED_BACKEND=http
+export CODEBASE_MCP_EMBED_HTTP_URL=http://127.0.0.1:8080/v1/embeddings
+export CODEBASE_MCP_EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
+export CODEBASE_MCP_EMBEDDING_DIM=1024
+```
 
 **Definition boost:** run the **indexer/daemon** at least once (or `codebase_reindex`) so LanceDB has the `definition_of` column and chunks are indexed with code-aware metadata. Rerank uses `definition_of` for *where is X defined?* when `CODEBASE_MCP_DEF_BOOST` is on. By default, embeddings **include** `def=` in the embed prefix (`CODEBASE_MCP_EMBED_DEF_TAG`); set **`CODEBASE_MCP_EMBED_DEF_TAG=0`** to omit it and re-embed. Until `definition_of` is populated, search still works; definition boosting has no effect.
 

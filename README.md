@@ -37,7 +37,7 @@ codebase-mcp-daemon
 
 ```bash
 cd /path/to/your/code/repo
-claude-mcp-install
+codebase-mcp-install-claude
 ```
 
 _Copy mcp config from `~/.claude.json` to `claude_desktop_config.json` if you're using the Desktop App_

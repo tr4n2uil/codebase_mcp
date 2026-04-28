@@ -8,7 +8,7 @@
     "codebase-mcp": "dist/main.js",
     "codebase-mcp-daemon": "dist/daemon-entry.js",
     "codebase-mcp-reindex": "dist/reindex-cli.js",
-    "claude-mcp-install": "dist/claude-mcp-install.js"
+    "codebase-mcp-install-claude": "dist/codebase-mcp-install-claude.js"
   },
   "files": [
     "dist",

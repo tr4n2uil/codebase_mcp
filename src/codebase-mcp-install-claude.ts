@@ -11,13 +11,14 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const CLI = 'codebase-mcp-install-claude';
 const SERVER_NAME = 'codebase_mcp';
 const SCOPE = 'user';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mainJs = resolve(here, 'main.js');
 if (!existsSync(mainJs)) {
-  console.error(`claude-mcp-install: could not find main.js at ${mainJs}.`);
+  console.error(`${CLI}: could not find main.js at ${mainJs}.`);
   process.exit(1);
 }
 const codeRoot = process.env.CODEBASE_MCP_ROOT?.trim()
@@ -48,7 +49,7 @@ const r = claude(
 );
 if (r.error) {
   console.error(
-    'claude-mcp-install: failed to run claude. Install Claude Code CLI and ensure `claude` is on your PATH.',
+    `${CLI}: failed to run claude. Install Claude Code CLI and ensure \`claude\` is on your PATH.`,
   );
   console.error((r.error as Error).message);
   process.exit(1);

@@ -8,7 +8,7 @@ This page groups them by **subsystem** for architecture readers.
 
 | Subsystem | Variables |
 |-----------|-----------|
-| **Roots & storage** | `CODEBASE_MCP_ROOT` (required), `CODEBASE_MCP_INDEX_DIR` |
+| **Roots & storage** | `CODEBASE_MCP_ROOT` (defaults to `process.cwd()` if unset), `CODEBASE_MCP_INDEX_DIR` |
 | **Git / includes / excludes** | `CODEBASE_MCP_WORKING_DOCS_PATH`, `CODEBASE_MCP_INDEX_EXCLUDE` (daemon) |
 | **Chunking** | `CODEBASE_MCP_CHUNK_*`, `CODEBASE_MCP_CODE_AWARE_CHUNKING`, `CODEBASE_MCP_DEF_ENGINE`, `CODEBASE_MCP_TREE_SITTER_MAX_BYTES` (tree-sitter + regex; daemon), `CODEBASE_MCP_MAX_FILE_BYTES` (daemon) |
 | **Embeddings** | `CODEBASE_MCP_EMBEDDING_*`, `CODEBASE_MCP_EMBED_*` (incl. `EMBED_DEF_TAG`: `def=` in embed prefix; default on, set `0` to disable), all `CODEBASE_MCP_ORT_*` (both for consistency) |

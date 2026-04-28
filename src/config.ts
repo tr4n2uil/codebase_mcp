@@ -169,18 +169,20 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value.trim() === '') {
-    throw new Error(
-      `Missing required environment variable ${name}. Set it to the absolute path of the repository root to index.`,
-    );
+/**
+ * Repo to index. If `CODEBASE_MCP_ROOT` is unset or empty, uses `process.cwd()` so running from the
+ * project root after `cd` does not require the env var.
+ */
+function getWatchRootAbsFromEnvOrCwd(): string {
+  const raw = process.env.CODEBASE_MCP_ROOT?.trim();
+  if (raw) {
+    return path.resolve(raw);
   }
-  return path.resolve(value.trim());
+  return path.resolve(process.cwd());
 }
 
 export function loadConfig(): AppConfig {
-  const watchRootAbs = requireEnv('CODEBASE_MCP_ROOT');
+  const watchRootAbs = getWatchRootAbsFromEnvOrCwd();
   const indexDirAbs = process.env.CODEBASE_MCP_INDEX_DIR
     ? path.resolve(process.env.CODEBASE_MCP_INDEX_DIR.trim())
     : defaultIndexDirAbs(watchRootAbs);

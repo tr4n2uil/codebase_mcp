@@ -2,41 +2,48 @@
 
 _Cursor for Claude Code_
 
-Local **semantic search** over a repository: watches files (with `.gitignore` + safety rules; by default **`CODEBASE_MCP_WORKING_DOCS_PATH`** includes **`.claude/docs`** so that tree can be indexed even if gitignored), chunks text, embeds with **`@xenova/transformers`** (no paid API), stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`** by default (override with **`CODEBASE_MCP_INDEX_DIR`**), and exposes **MCP tools** for agents.
+Local **semantic search** over a repository: 
+- watches files (with `.gitignore` + safety rules)
+- chunks text and embeds with **`@xenova/transformers`** (no paid API) 
+- stores vectors in **LanceDB** under **`<repo>/.claude/codebase_mcp/db/`**
+- and exposes **MCP tools** for agents.
 
-**Architecture** (diagrams, subsystems, IPC, storage): see **[`docs/architecture/README.md`](docs/architecture/README.md)**.
 
-License: Apache-2.0 (see `LICENSE`).
+Architecture: (diagrams, subsystems, IPC, storage) see [`docs/architecture/README.md`](docs/architecture/README.md).
+License: (Apache-2.0) see [`LICENSE`](LICENSE).
 
 # Quickstart
 
-1. Install package
+1. **Install the package**
+
 ```bash
-mkdir -p ~/.mcp/ && cd ~/.mcp
-npm install @tr4n2uil/codebase-mcp@latest
+npm install -g @tr4n2uil/codebase-mcp@latest
 ```
 
-2. Run indexer for your codebase
+2. **Start the indexer from the repository you want to index** — `cd` into that repo, then start the daemon
+
 ```bash
-CODEBASE_MCP_ROOT=/absolute/path/to/code/repo npmx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon
+cd /path/to/your/code/repo
+codebase-mcp-daemon
 ```
 
-3. Wait for initial indexing to finish
+3. **Wait** for the initial full scan to finish, then keep the process running so new edits are indexed
+
 ```
 [codebase-mcp] [bootstrap] initial full scan queue finished (indexer may still be embedding)
 ```
-_Keep indexer running to ensure any codebase changes are always indexed_
 
-4. Configure MCP on claude code
+4. **Register the MCP in Claude Code** — from the same repo, run the install helper
+
 ```bash
-claude mcp list
-claude mcp add codebase_mcp -e CODEBASE_MCP_ROOT=/absolute/path/to/code/repo -- node $HOME/.mcp/node_modules/@tr4n2uil/codebase_mcp/dist/main.js
+cd /path/to/your/code/repo
+claude-mcp-install
 ```
 
-4. Restart Claude 
-_And ask exploratory queries and see the magic!_
-```
-how does auth work? 
+5. **Restart** Claude, then try exploratory questions
+
+```text
+how does auth work?
 how is logger configured?
 is there feature flag integrated?
 ```
@@ -44,7 +51,7 @@ is there feature flag integrated?
 ## Prerequisites
 
 - **Node.js 18+**
-- Env **`CODEBASE_MCP_ROOT`**: absolute path to the repository root to index.
+- For CLI/daemon, **`CODEBASE_MCP_ROOT` defaults to the current working directory** if unset; set it to an absolute path when the process is not started from the repo (typical in IDE MCP `env` blocks), or to index a different tree than your cwd.
 
 ## MCP tools
 
@@ -60,7 +67,7 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 
 | Variable | Default | Applies to | Purpose |
 |----------|---------|------------|---------|
-| `CODEBASE_MCP_ROOT` | _(required)_ | **Both** | Repo root. Must match between MCP and daemon. |
+| `CODEBASE_MCP_ROOT` | `process.cwd()` when unset | **Both** | Absolute repo root. When unset, **each** process uses its **current working directory** at `loadConfig()` (so `cd` into the repo is enough for CLI; set explicitly for MCP/IDE if cwd is not the project). Must match between MCP and daemon. |
 | `CODEBASE_MCP_INDEX_DIR` | `<CODEBASE_MCP_ROOT>/.claude/codebase_mcp/db` | **Both** | Where LanceDB + `meta.json` live (default: under the repo’s `.claude/` tree). Must match between MCP and daemon. Override for a custom path or CI cache. |
 | `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | **Both** | Model id. Must match stored index metadata; used for **query** embed (MCP) and **ingest** embed (daemon). |
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | **Both** | Vector dimension; must match model and index. |
@@ -130,7 +137,7 @@ Index data lives next to this tool (`db/` is gitignored here), not inside the in
 
 ## Cursor MCP config example
 
-The `env` object applies to the **MCP** process only. At minimum set **`CODEBASE_MCP_ROOT`** (and override **`CODEBASE_MCP_INDEX_DIR`** if needed). **Indexing** options such as **`CODEBASE_MCP_WORKING_DOCS_PATH`** must be set on the **daemon** (see *Start the daemon* above), not here, unless you use **`CODEBASE_MCP_NO_DAEMON=1`**. If you customize `CODEBASE_MCP_WORKING_DOCS_PATH`, set the **same value on the MCP** as well so `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE` applies to the right paths.
+The `env` object applies to the **MCP** process only. Set **`CODEBASE_MCP_ROOT`** to the repo (recommended for editors where the stdio process cwd may not be the project; when omitted, each process uses **`process.cwd()`** at startup). Override **`CODEBASE_MCP_INDEX_DIR`** if needed. **Indexing** options such as **`CODEBASE_MCP_WORKING_DOCS_PATH`** must be set on the **daemon** (see *Start the daemon* above), not here, unless you use **`CODEBASE_MCP_NO_DAEMON=1`**. If you customize `CODEBASE_MCP_WORKING_DOCS_PATH`, set the **same value on the MCP** as well so `CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE` applies to the right paths.
 
 ```json
 {

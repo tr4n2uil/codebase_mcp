@@ -26,7 +26,7 @@ flowchart TD
 
 ## Required environment
 
-- **`CODEBASE_MCP_ROOT`**: absolute path to the repo to index; required in every process that calls `loadConfig()`.
+- **`CODEBASE_MCP_ROOT`**: absolute path to the repo to index; if unset, `loadConfig()` uses `process.cwd()`; set explicitly when the process is not started from the repo (e.g. some MCP/IDE stdio clients).
 
 ## Index directory layout (conceptual)
 

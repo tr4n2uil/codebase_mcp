@@ -115,7 +115,9 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     glob: z
       .string()
       .optional()
-      .describe('Glob filter (grep-like): `*.rb` matches nested Ruby files too; path globs like `app/**/*.rb` also work'),
+      .describe(
+        'Glob filter (grep-like): filename globs like `*.rb` match nested files; path globs like `app/**/*.rb` match full paths',
+      ),
   };
 
   server.registerTool(

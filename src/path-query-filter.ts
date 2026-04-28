@@ -113,10 +113,12 @@ export function parsePathQueryForSearch(input: {
   if (hasGlob) {
     try {
       /**
-       * Grep/ripgrep-like UX: `*.rb` should match nested files by basename (e.g. `app/models/user.rb`),
-       * while path-aware patterns (for example `app/**\/*.rb`) continue to work.
+       * Grep/ripgrep-like UX:
+       * - filename-style glob (example: `*.rb`) should match nested files by basename
+       * - path-style glob with slash segments should keep full-path semantics
        */
-      globMatcher = picomatch(g, { dot: true, basename: true });
+      const pathAware = g.includes('/');
+      globMatcher = picomatch(g, { dot: true, basename: !pathAware });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { ok: false, error: `Invalid glob: ${msg}` };

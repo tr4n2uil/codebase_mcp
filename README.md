@@ -40,6 +40,8 @@ cd /path/to/your/code/repo
 claude-mcp-install
 ```
 
+_Copy mcp config from `~/.claude.json` to `claude_desktop_config.json` if you're using the Desktop App_
+
 5. **Restart** Claude, then try exploratory questions
 
 ```text

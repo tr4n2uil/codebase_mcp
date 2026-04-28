@@ -20,6 +20,10 @@ export interface TextChunk {
   scopePath?: string;
   /** How this chunk was produced; used for retrieval diagnostics and tuning. */
   chunkMode?: 'symbol' | 'symbol_split' | 'preamble' | 'fallback_lexical';
+  /** Config filename stem (for config-aware chunking), e.g. `database` or `cable`. */
+  configFile?: string;
+  /** Environment section hint (for config-aware chunking), e.g. `development`/`test`/`production`. */
+  configEnv?: string;
 }
 
 /** Use fast path below this; above, scan for newlines in chunks and yield to keep IPC alive. */
@@ -143,12 +147,15 @@ export interface ChunkerOptions {
   defEngine: 'auto' | 'tree_sitter' | 'regex';
   /** Skip in-process parse for very large single files. */
   treeSitterMaxBytes: number;
+  /** Enable JSON/YAML top-level section chunking. */
+  configAwareChunking: boolean;
 }
 
 export function buildChunkerOptions(config: AppConfig): ChunkerOptions {
   return {
     defEngine: config.defEngine,
     treeSitterMaxBytes: config.treeSitterMaxBytes,
+    configAwareChunking: config.configAwareChunking,
   };
 }
 
@@ -176,7 +183,138 @@ function detectLanguage(filePath: string): string {
   if (ext === 'rb' || ext === 'rake' || ext === 'rbi') {
     return 'ruby';
   }
+  if (ext === 'yml') {
+    return 'yaml';
+  }
   return ext;
+}
+
+function configFileStem(filePath: string): string {
+  const base = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+
+function envSectionFromKey(key: string): string | undefined {
+  const v = key.trim().toLowerCase();
+  if (v === 'development' || v === 'test' || v === 'production') {
+    return v;
+  }
+  return undefined;
+}
+
+function topLevelYamlKey(line: string): string | null {
+  if (!line || /^\s/.test(line) || line.trimStart().startsWith('#')) {
+    return null;
+  }
+  const m = line.match(/^["']?([A-Za-z0-9_.-]+)["']?\s*:/);
+  return m ? m[1]! : null;
+}
+
+async function chunkYamlTopLevel(lines: string[], language: string, filePath: string): Promise<TextChunk[]> {
+  const keyStarts: Array<{ key: string; line: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0 && i % SYMBOLS_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
+    const key = topLevelYamlKey(lines[i] ?? '');
+    if (key) {
+      keyStarts.push({ key, line: i + 1 });
+    }
+  }
+  if (keyStarts.length === 0) {
+    return [];
+  }
+  const out: TextChunk[] = [];
+  for (let i = 0; i < keyStarts.length; i++) {
+    if (i > 0 && i % CHUNKEMIT_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
+    const current = keyStarts[i]!;
+    const next = keyStarts[i + 1];
+    const endLine = next ? next.line - 1 : lines.length;
+    out.push({
+      startLine: current.line,
+      endLine,
+      text: sliceText(lines, current.line, endLine),
+      language,
+      symbolName: current.key,
+      symbolKind: 'config_key',
+      configFile: configFileStem(filePath),
+      configEnv: envSectionFromKey(current.key),
+      definitionOf: current.key,
+      chunkMode: 'symbol',
+    });
+  }
+  return out;
+}
+
+function scanJsonTopLevelKeys(lines: string[]): Array<{ key: string; line: number }> {
+  const out: Array<{ key: string; line: number }> = [];
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (!inString && depth === 1) {
+      const m = line.match(/^\s*,?\s*"([^"]+)"\s*:/);
+      if (m) {
+        out.push({ key: m[1]!, line: i + 1 });
+      }
+    }
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j]!;
+      if (inString) {
+        if (escape) {
+          escape = false;
+        } else if (ch === '\\') {
+          escape = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === '{') {
+        depth += 1;
+      } else if (ch === '}') {
+        depth = Math.max(0, depth - 1);
+      }
+    }
+  }
+  return out;
+}
+
+async function chunkJsonTopLevel(lines: string[], language: string, filePath: string): Promise<TextChunk[]> {
+  const keyStarts = scanJsonTopLevelKeys(lines);
+  if (keyStarts.length === 0) {
+    return [];
+  }
+  const out: TextChunk[] = [];
+  for (let i = 0; i < keyStarts.length; i++) {
+    if (i > 0 && i % CHUNKEMIT_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
+    const current = keyStarts[i]!;
+    const next = keyStarts[i + 1];
+    const endLine = next ? next.line - 1 : lines.length;
+    out.push({
+      startLine: current.line,
+      endLine,
+      text: sliceText(lines, current.line, endLine),
+      language,
+      symbolName: current.key,
+      symbolKind: 'config_key',
+      configFile: configFileStem(filePath),
+      configEnv: envSectionFromKey(current.key),
+      definitionOf: current.key,
+      chunkMode: 'symbol',
+    });
+  }
+  return out;
 }
 
 async function extractSymbolsRegex(lines: string[], language: string): Promise<SymbolSpan[]> {
@@ -380,6 +518,18 @@ export async function chunkCodeAware(
     return [];
   }
   const language = detectLanguage(filePath);
+  if (options?.configAwareChunking && language === 'json') {
+    const jsonChunks = await chunkJsonTopLevel(lines, language, filePath);
+    if (jsonChunks.length > 0) {
+      return jsonChunks;
+    }
+  }
+  if (options?.configAwareChunking && language === 'yaml') {
+    const yamlChunks = await chunkYamlTopLevel(lines, language, filePath);
+    if (yamlChunks.length > 0) {
+      return yamlChunks;
+    }
+  }
   const symbols = await extractSymbols(lines, language, content, filePath, options);
   const fallbackChunkLines = Math.max(20, Math.floor(chunkLines * 0.6));
   const fallbackOverlap = Math.min(overlapLines, Math.floor(fallbackChunkLines / 4));

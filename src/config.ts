@@ -57,6 +57,8 @@ export interface AppConfig {
   searchExcludeForceInclude: boolean;
   /** Enable symbol-aware chunking with line-window fallback. */
   codeAwareChunking: boolean;
+  /** Enable config-aware JSON/YAML section chunking (off by default). */
+  configAwareChunking: boolean;
   /** Enable lexical/path reranking over vector-search candidates. */
   rerankEnabled: boolean;
   /** Candidate pool size for reranking. */
@@ -239,6 +241,7 @@ export function loadConfig(): AppConfig {
     true,
   );
   const codeAwareChunking = parseBool(process.env.CODEBASE_MCP_CODE_AWARE_CHUNKING, true);
+  const configAwareChunking = parseBool(process.env.CODEBASE_MCP_CONFIG_AWARE_CHUNKING, false);
   const rerankEnabled = parseBool(process.env.CODEBASE_MCP_RERANK, true);
   const rerankCandidates =
     Number.parseInt(process.env.CODEBASE_MCP_RERANK_CANDIDATES || '100', 10) || 100;
@@ -359,6 +362,7 @@ export function loadConfig(): AppConfig {
     indexExcludeRelPosix,
     searchExcludeForceInclude,
     codeAwareChunking,
+    configAwareChunking,
     rerankEnabled,
     rerankCandidates,
     hybridSearch,

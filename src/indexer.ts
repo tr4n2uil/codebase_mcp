@@ -61,6 +61,20 @@ function embeddingTextForChunk(relPath: string, chunk: TextChunk, includeDefTag:
   if (chunk.symbolKind) {
     tags.push(`kind=${chunk.symbolKind}`);
   }
+  if (
+    (chunk.language === 'json' || chunk.language === 'yaml') &&
+    chunk.symbolKind === 'config_key' &&
+    chunk.symbolName
+  ) {
+    tags.push('file_kind=config');
+    if (chunk.configFile) {
+      tags.push(`config_file=${chunk.configFile}`);
+    }
+    if (chunk.configEnv) {
+      tags.push(`env_section=${chunk.configEnv}`);
+    }
+    tags.push(`config_key=${chunk.symbolName}`);
+  }
   if (chunk.scopePath && chunk.symbolName) {
     tags.push(`scope=${chunk.scopePath}`);
   }

@@ -117,7 +117,7 @@ async function walkPython(root: TAny): Promise<SymbolSpan[]> {
 async function walkRuby(root: TAny): Promise<SymbolSpan[]> {
   const out: SymbolSpan[] = [];
   let nVisits = 0;
-  const visit = async (n: TAny): Promise<void> => {
+  const visit = async (n: TAny, classScope: string[]): Promise<void> => {
     nVisits += 1;
     if (nVisits % 4_000 === 0) {
       await yieldToEventLoop();
@@ -125,19 +125,32 @@ async function walkRuby(root: TAny): Promise<SymbolSpan[]> {
     if (n.type === 'method' || n.type === 'singleton_method') {
       const raw = nameFromField(n, 'name');
       if (raw) {
-        out.push({ name: raw, kind: 'function', startLine: line1(n) });
+        const scopePath = classScope.length > 0 ? classScope.join('::') : undefined;
+        const qualified = scopePath ? `${scopePath}#${raw}` : raw;
+        out.push({ name: qualified, kind: 'function', startLine: line1(n), scopePath });
       }
     } else if (n.type === 'class' || n.type === 'module') {
       const raw = nameFromField(n, 'name');
       if (raw) {
-        out.push({ name: raw, kind: 'class', startLine: line1(n) });
+        const thisScope = [...classScope, raw];
+        const scopePath = classScope.length > 0 ? classScope.join('::') : undefined;
+        out.push({
+          name: thisScope.join('::'),
+          kind: 'class',
+          startLine: line1(n),
+          ...(scopePath ? { scopePath } : {}),
+        });
+        for (let i = 0; i < n.namedChildCount; i++) {
+          await visit(n.namedChild(i), thisScope);
+        }
+        return;
       }
     }
     for (let i = 0; i < n.namedChildCount; i++) {
-      await visit(n.namedChild(i));
+      await visit(n.namedChild(i), classScope);
     }
   };
-  await visit(root);
+  await visit(root, []);
   return out;
 }
 

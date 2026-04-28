@@ -16,6 +16,10 @@ export interface TextChunk {
    * chunking only). Used at search time to boost “where is X defined?” queries vs usages in the same file.
    */
   definitionOf?: string;
+  /** Ancestor scope path where this symbol lives (if known). */
+  scopePath?: string;
+  /** How this chunk was produced; used for retrieval diagnostics and tuning. */
+  chunkMode?: 'symbol' | 'symbol_split' | 'preamble' | 'fallback_lexical';
 }
 
 /** Use fast path below this; above, scan for newlines in chunks and yield to keep IPC alive. */
@@ -355,6 +359,8 @@ async function splitLargeSymbolChunk(
       text: sliceText(lines, cursor, chunkEnd),
       symbolName: symbol.name,
       symbolKind: symbol.kind,
+      scopePath: symbol.scopePath,
+      chunkMode: 'symbol_split',
       ...(cursor === symbol.startLine ? { definitionOf: symbol.name } : {}),
     });
     cursor = chunkEnd + 1;
@@ -375,19 +381,41 @@ export async function chunkCodeAware(
   }
   const language = detectLanguage(filePath);
   const symbols = await extractSymbols(lines, language, content, filePath, options);
+  const fallbackChunkLines = Math.max(20, Math.floor(chunkLines * 0.6));
+  const fallbackOverlap = Math.min(overlapLines, Math.floor(fallbackChunkLines / 4));
   if (symbols.length === 0) {
-    const raw = await chunkByLinesFromLinesWithYields(lines, chunkLines, overlapLines);
-    return raw.map((c) => ({ ...c, language }));
+    const raw = await chunkByLinesFromLinesWithYields(lines, fallbackChunkLines, fallbackOverlap);
+    return raw.map((c) => ({ ...c, language, chunkMode: 'fallback_lexical' as const }));
   }
 
   const chunks: TextChunk[] = [];
   if (symbols[0]!.startLine > 1) {
-    chunks.push({
-      startLine: 1,
-      endLine: symbols[0]!.startLine - 1,
-      text: sliceText(lines, 1, symbols[0]!.startLine - 1),
-      language,
-    });
+    const preStart = 1;
+    const preEnd = symbols[0]!.startLine - 1;
+    if (preEnd - preStart + 1 > fallbackChunkLines) {
+      const preRaw = await chunkByLinesFromLinesWithYields(
+        lines.slice(preStart - 1, preEnd),
+        fallbackChunkLines,
+        fallbackOverlap,
+      );
+      for (const c of preRaw) {
+        chunks.push({
+          ...c,
+          startLine: c.startLine + preStart - 1,
+          endLine: c.endLine + preStart - 1,
+          language,
+          chunkMode: 'preamble',
+        });
+      }
+    } else {
+      chunks.push({
+        startLine: preStart,
+        endLine: preEnd,
+        text: sliceText(lines, preStart, preEnd),
+        language,
+        chunkMode: 'preamble',
+      });
+    }
   }
 
   for (let i = 0; i < symbols.length; i++) {
@@ -411,6 +439,8 @@ export async function chunkCodeAware(
               text: sliceText(lines, startLine, endLine),
               symbolName: current.name,
               symbolKind: current.kind,
+              scopePath: current.scopePath,
+              chunkMode: 'symbol',
               definitionOf: current.name,
             } as TextChunk,
           ];

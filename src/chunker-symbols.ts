@@ -3,4 +3,6 @@ export interface SymbolSpan {
   name: string;
   kind: string;
   startLine: number;
+  /** Optional ancestor scope path (for example `Users::Callbacks` or `MyClass`). */
+  scopePath?: string;
 }

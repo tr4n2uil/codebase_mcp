@@ -61,6 +61,9 @@ function embeddingTextForChunk(relPath: string, chunk: TextChunk, includeDefTag:
   if (chunk.symbolKind) {
     tags.push(`kind=${chunk.symbolKind}`);
   }
+  if (chunk.scopePath && chunk.symbolName) {
+    tags.push(`scope=${chunk.scopePath}`);
+  }
   if (includeDefTag && chunk.definitionOf) {
     tags.push(`def=${chunk.definitionOf}`);
   }

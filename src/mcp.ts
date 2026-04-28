@@ -56,8 +56,8 @@ export function createLocalMcpBackend(
 
 export const DAEMON_REINDEX_HOWTO =
   'The indexer daemon is not running, so reindex is unavailable. ' +
-  'In a terminal, with CODEBASE_MCP_ROOT (and optional CODEBASE_MCP_INDEX_DIR) set to the same values as the MCP, run: ' +
-  'npx -y -p @tr4n2uil/codebase-mcp@latest -- codebase-mcp-daemon';
+  'From your repository root, start the daemon the same way as in the package README (e.g. `codebase-mcp-daemon`), ' +
+  'using the same project root as this MCP.';
 
 /**
  * Default MCP mode: search + stats run locally (LanceDB read + local query embedding);
@@ -99,40 +99,27 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     'codebase_search',
     {
       description:
-        'Semantic search over the indexed repository (LanceDB read in this process; query embedded locally). Set CODEBASE_MCP_ROOT to the repo root. Vector data defaults to <repo>/.claude/codebase_mcp/db (override with CODEBASE_MCP_INDEX_DIR). Start the indexer daemon separately (see codebase_reindex) so it can index and write the DB. Unscoped search omits paths under CODEBASE_MCP_WORKING_DOCS_PATH (e.g. .claude/docs) unless you set path_prefix to include that tree, or set include_docs=true to include those paths in the same unscoped result set as the rest of the repo. path_prefix and include_docs are separate: use path_prefix to scope; include_docs only affects the default unscoped exclude. Disable the global omit with CODEBASE_MCP_SEARCH_EXCLUDE_FORCE_INCLUDE=0. JSON includes heuristic match quality fields: match_confidence (high|medium|low), match_confidence_reasons, match_confidence_hint, top_primary_score, top_relative_separation (omit with CODEBASE_MCP_MATCH_CONFIDENCE=0). Chunks may include definition_of when indexed with code-aware chunking (boosts “where is X defined?” style queries; see CODEBASE_MCP_DEF_BOOST). Optional: path_prefix, ext, lang, and glob scope results (useful in monorepos; combined with AND). Optional: CODEBASE_MCP_CROSS_ENCODER=1 runs a BGE-style cross-encoder reranker on the top K candidates after hybrid/heuristic rerank (extra latency, better precision@1).',
+        'Semantic search over the indexed repository: query embedded in-process; returns chunks (path, lines, snippet, scores, optional `match_confidence` / `definition_of`). Unscoped search may drop “working docs” (e.g. under `.claude/docs`); use optional args to scope, include those paths, or filter by file shape. Several filters together use AND.',
       inputSchema: {
-        query: z.string().min(1).describe('Natural language search query'),
-        limit: z.number().int().min(1).max(50).optional().describe('Max results (default 10)'),
-        path_prefix: z
-          .string()
-          .optional()
-          .describe(
-            'Only chunks whose path starts with this prefix (POSIX, relative to repo root). E.g. set to .claude/docs to only search the working-docs tree. Unscoped, those paths are omitted unless include_docs is true (see tool description).',
-          ),
+        query: z.string().min(1).describe('Search text'),
+        limit: z.number().int().min(1).max(50).optional().describe('Result cap (default 10)'),
+        path_prefix: z.string().optional().describe('Repo-relative path prefix (POSIX)'),
         include_docs: z
           .boolean()
           .optional()
-          .describe(
-            'If true, unscoped search also includes chunks under CODEBASE_MCP_WORKING_DOCS_PATH. Ignored when path_prefix is set.',
-          ),
+          .describe('When true, unscoped search also searches working-doc trees; ignored if `path_prefix` is set'),
         ext: z
           .union([z.string().min(1), z.array(z.string().min(1))])
           .optional()
-          .describe(
-            'Only include chunks from files whose path ends with one of these extensions (e.g. ".rb" or "rb"); string may be comma-separated; unioned with `lang` when both are set',
-          ),
+          .describe('Allow only these file extensions (comma-separated or list)'),
         lang: z
           .string()
           .optional()
-          .describe(
-            'Restrict to a known language by typical extensions (e.g. ruby, typescript, python). Unioned with `ext` when both are set. Unknown `lang` returns a tool error.',
-          ),
+          .describe('Known language name (e.g. `ruby`); unknown → error'),
         glob: z
           .string()
           .optional()
-          .describe(
-            'Picomatch pattern on the full repo-relative path (use forward slashes). If set, path must also match; combined with ext/lang (AND) when they are set.',
-          ),
+          .describe('Picomatch on repo-relative paths'),
       },
     },
     async (args) => b.codebase_search(args),
@@ -150,13 +137,12 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
   server.registerTool(
     'codebase_reindex',
     {
-      description:
-        'Reindex the repository (requires the indexer daemon to be running — start it manually with the codebase-mcp-daemon npx command from the README; same env as MCP). Omit path for full reconcile.',
+      description: 'Reindex the repository (requires the indexer daemon to be running — start it manually with the codebase-mcp-daemon npx command from the README; same env as MCP). Omit path for full reconcile.',
       inputSchema: {
         path: z
           .string()
           .optional()
-          .describe('Path to a file under the repo (absolute or relative to repo root)'),
+          .describe('Omit: reconcile the full repo. Set: reindex this file (repo-relative or absolute)'),
       },
     },
     async (args) => b.codebase_reindex(args),

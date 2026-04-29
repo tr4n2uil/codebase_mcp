@@ -51,7 +51,7 @@ Default: **two processes** — MCP (short-lived or long-lived stdio) + **one** l
 
 ```mermaid
 flowchart LR
-  subgraph default["Default (CODEBASE_MCP_NO_DAEMON unset)"]
+  subgraph mode_default["Default (CODEBASE_MCP_NO_DAEMON unset)"]
     M["MCP\n(main.js)"]
     D["codebase-mcp-daemon\n(daemon-entry.js)"]
     M -->|Lance read-only| DB[(LanceDB)]

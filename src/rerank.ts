@@ -12,7 +12,7 @@ export interface RerankedHit extends SearchHit {
 }
 
 export interface RerankDefinitionOptions {
-  /** Identifier from e.g. `parseDefinitionIntentQuery` — must match chunk `definition_of` (case-insensitive). */
+  /** Identifier from definition-intent / bare-symbol inference — must match chunk `definition_of` (case-insensitive). */
   definitionTarget?: string;
   /**
    * Extra path prior (additive) for chunks that declare this symbol. Set to `0` to disable.
@@ -86,10 +86,10 @@ function scoreSymbolBonus(symbolTokens: string[], hit: SearchHit): number {
   if (symbolTokens.length === 0) {
     return 0;
   }
-  const lines = hit.text.split('\n', 8).join('\n').toLowerCase();
+  const haystack = hit.text.toLowerCase();
   let matched = 0;
   for (const token of symbolTokens) {
-    if (lines.includes(token) || hit.path.toLowerCase().includes(token)) {
+    if (haystack.includes(token) || hit.path.toLowerCase().includes(token)) {
       matched += 1;
     }
   }

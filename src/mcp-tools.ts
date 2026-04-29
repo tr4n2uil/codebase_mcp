@@ -6,7 +6,7 @@ import type { Indexer } from './indexer.js';
 import { readMeta } from './meta.js';
 import { logError } from './log.js';
 import type { ChunkStore } from './store.js';
-import { orderHitsByDefinitionBoost, parseDefinitionIntentQuery } from './definition-intent.js';
+import { orderHitsByDefinitionBoost, inferDefinitionTargetFromQuery, parseDefinitionIntentQuery } from './definition-intent.js';
 import {
   applyQueryClassifierPrimarySort,
   resolveQueryClassifierInput,
@@ -150,7 +150,7 @@ export async function codebaseSearchPayload(
       : hits;
   const defTarget =
     config.definitionBoostEnabled && config.definitionBoost > 0
-      ? parseDefinitionIntentQuery(args.query)
+      ? parseDefinitionIntentQuery(args.query) ?? inferDefinitionTargetFromQuery(args.query)
       : undefined;
   const defBoost = defTarget ? config.definitionBoost : 0;
   let ranked: RerankedHit[] | SearchHit[] = workingHits;

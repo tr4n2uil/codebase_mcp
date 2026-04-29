@@ -52,6 +52,34 @@ function sqlLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+/**
+ * Separates the BM25-only header (path / basename tokens) from chunk body in Lance `text`.
+ * Uses Unicode RECORD SEPARATOR — extremely unlikely inside indexed source.
+ */
+export const CHUNK_TEXT_STORAGE_SEP = '\n\u241E\n';
+
+/**
+ * Lance stores `text` used for BM25 (`fullTextSearch` on `text`). Include path + basename tokens so
+ * queries like "gitlab-ci" or "docker-compose" match YAML/JSON whose bodies rarely repeat the filename.
+ * Embeddings still use raw chunk text via `embeddingTextForChunk` in the indexer.
+ */
+export function chunkTextForLanceStorage(relPosix: string, body: string): string {
+  const base = relPosix.includes('/') ? relPosix.slice(relPosix.lastIndexOf('/') + 1) : relPosix;
+  const pathWords = relPosix.replace(/\//g, ' ');
+  const baseHyphenSplit = base.replace(/-/g, ' ');
+  const header = `${relPosix} ${base} ${baseHyphenSplit} ${pathWords}`;
+  return `${header}${CHUNK_TEXT_STORAGE_SEP}${body}`;
+}
+
+/** Undo {@link chunkTextForLanceStorage} for snippets / rerank / cross-encoder (body only). */
+export function chunkBodyFromLanceStored(stored: string): string {
+  const idx = stored.indexOf(CHUNK_TEXT_STORAGE_SEP);
+  if (idx === -1) {
+    return stored;
+  }
+  return stored.slice(idx + CHUNK_TEXT_STORAGE_SEP.length);
+}
+
 function pathPrefixSqlFilter(prefix: string): string {
   const p = prefix.replace(/\/+$/, '');
   return `(path = ${sqlLiteral(p)} OR path LIKE ${sqlLiteral(`${p}/%`)})`;
@@ -283,7 +311,7 @@ export class ChunkStore {
         path: String(r.path),
         start_line: Number(r.start_line),
         end_line: Number(r.end_line),
-        text: String(r.text),
+        text: chunkBodyFromLanceStored(String(r.text)),
         score: typeof distance === 'number' ? 1 / (1 + distance) : 0,
         ...(def ? { definition_of: def } : {}),
       });
@@ -342,7 +370,7 @@ export class ChunkStore {
         path: String(r.path),
         start_line: Number(r.start_line),
         end_line: Number(r.end_line),
-        text: String(r.text),
+        text: chunkBodyFromLanceStored(String(r.text)),
         score: hitScoreFromRow(r),
         ...(def ? { definition_of: def } : {}),
       };

@@ -18,7 +18,7 @@ import { isIgnored, normalizeIgnorePath } from './gitignore.js';
 import { yieldToEventLoop } from './event-loop-yield.js';
 import { logError, logInfo } from './log.js';
 import type { ChunkRow } from './store.js';
-import { ChunkStore } from './store.js';
+import { ChunkStore, chunkTextForLanceStorage } from './store.js';
 
 /** Rough token-safe limit for MiniLM-class models (chars, not tokens). */
 const MAX_CHUNK_CHARS = 12_000;
@@ -379,7 +379,7 @@ export class Indexer {
       path: rel,
       start_line: c.startLine,
       end_line: c.endLine,
-      text: c.text,
+      text: chunkTextForLanceStorage(rel, c.text),
       vector: vectors[i]!,
       definition_of: c.definitionOf ?? '',
     }));

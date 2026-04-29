@@ -1,5 +1,6 @@
 import type { AppConfig } from './config.js';
 import {
+  hasConfigFileExtension,
   hitContentBucket,
   type QueryClassifier,
   queryClassifierPrior,
@@ -164,9 +165,11 @@ function codePathPrior(
   symbolIntent: boolean,
   testPathQueryIntent: boolean,
   frontendPathQueryIntent: boolean,
+  queryClassifier: QueryClassifier | undefined,
 ): number {
   const p = path.toLowerCase();
   let prior = 0;
+  const configFocus = queryClassifier === 'config';
   if (
     p.startsWith('app/models/') ||
     p.startsWith('app/controllers/') ||
@@ -174,7 +177,7 @@ function codePathPrior(
     p.startsWith('lib/') ||
     p.startsWith('src/')
   ) {
-    prior += 0.2;
+    prior += configFocus ? 0.08 : 0.2;
   }
   if (isTestishPath(p)) {
     prior += testPathQueryIntent ? 0.12 : -0.12;
@@ -184,7 +187,10 @@ function codePathPrior(
   if (p.includes('/fixtures/') || p.includes('/locales/') || p.includes('/assets/')) {
     prior -= symbolIntent ? 0.2 : 0.08;
   }
-  if (p.endsWith('.yml') || p.endsWith('.yaml')) {
+  /* Default symbol-intent queries de-prioritize YAML; config focus explicitly wants these files. */
+  if (configFocus && hasConfigFileExtension(path)) {
+    prior += 0.12;
+  } else if (!configFocus && (p.endsWith('.yml') || p.endsWith('.yaml'))) {
     prior -= symbolIntent ? 0.15 : 0.05;
   }
   return prior;
@@ -255,7 +261,13 @@ export function rerankSearchHits(
             )
           : 0;
       const pathPrior =
-        codePathPrior(hit.path, symbolIntent, testPathQueryIntent, frontendPathQueryIntent) +
+        codePathPrior(
+          hit.path,
+          symbolIntent,
+          testPathQueryIntent,
+          frontendPathQueryIntent,
+          classifier?.queryClassifier,
+        ) +
         userPathDemote(hit.path, pathDemote.rerankDemotePathSubstrings, pathDemote.rerankDemotePerMatch) +
         defPrior +
         qcPrior;

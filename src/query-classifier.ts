@@ -35,6 +35,12 @@ function fileBaseAndExt(relPath: string): { base: string; ext: string } {
   return { base: seg.slice(0, dot).toLowerCase(), ext: seg.slice(dot + 1).toLowerCase() };
 }
 
+/** Same extension set as `config` in {@link hitContentBucket} (json/yaml/toml/…); for rerank boosts. */
+export function hasConfigFileExtension(relPath: string): boolean {
+  const { ext } = fileBaseAndExt(relPath);
+  return Boolean(ext && CONFIG_EXTS.has(ext));
+}
+
 function looksLikeEnvFile(base: string): boolean {
   const b = base.toLowerCase();
   return b.startsWith('.env') || b === 'env' || b.endsWith('.env');
@@ -101,7 +107,8 @@ export function queryClassifierPrior(bucket: HitContentBucket, focus: QueryClass
     return 0;
   }
   if (focus === bucket) {
-    return 0.16;
+    /* Stronger lift for config focus + json/yaml/etc. so they beat generic code_path priors. */
+    return focus === 'config' ? 0.22 : 0.16;
   }
   if (focus === 'code') {
     return bucket === 'config' ? -0.1 : -0.14;

@@ -28,6 +28,9 @@
     "push-npm-package": "npm run build && npm run typecheck && npm version patch && npm publish"
   },
   "keywords": [
+    "cursor",
+    "claude",
+    "openai",
     "mcp",
     "vector",
     "embeddings",

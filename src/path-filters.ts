@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { toPosixPath } from './config.js';
 
+/** Indexable extensions for `shouldConsiderExtension`. `.rbi` is intentionally omitted (Sorbet stubs: generated/noisy vs `.rb`). */
 const TEXT_EXTENSIONS = new Set([
   'adoc',
   'bash',
@@ -37,7 +38,6 @@ const TEXT_EXTENSIONS = new Set([
   'py',
   'rb',
   'rake',
-  'rbi',
   'gemspec',
   'rs',
   'rst',

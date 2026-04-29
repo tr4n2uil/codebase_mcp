@@ -7,6 +7,10 @@ import { readMeta } from './meta.js';
 import { logError } from './log.js';
 import type { ChunkStore } from './store.js';
 import { orderHitsByDefinitionBoost, parseDefinitionIntentQuery } from './definition-intent.js';
+import {
+  applyQueryClassifierPrimarySort,
+  resolveQueryClassifierInput,
+} from './query-classifier.js';
 import { rerankSearchHits } from './rerank.js';
 import type { RerankedHit } from './rerank.js';
 import { assessSearchMatchQuality, matchConfidenceHint } from './search-confidence.js';
@@ -49,6 +53,7 @@ export type CodebaseSearchPayload =
   | {
       ok: true;
       hits: CodebaseSearchHitPayload[];
+      query_classifier: string;
       match_confidence?: string;
       match_confidence_reasons?: string[];
       match_confidence_hint?: string;
@@ -61,6 +66,13 @@ export type CodebaseSearchArgs = {
   query: string;
   limit?: number;
   path_prefix?: string;
+  /**
+   * Bias retrieval toward **code**, **config** (json/yaml/toml/etc.), or **docs** (markdown + configured working-docs trees).
+   * Implemented as an additive rerank prior (or primary-score sort when heuristic rerank is off). Default: `auto`.
+   */
+  query_classifier?: string;
+  /** Alias of `query_classifier`; do not pass conflicting values. */
+  search_focus?: string;
   /**
    * If true, unscoped search also returns chunks under `CODEBASE_MCP_WORKING_DOCS_PATH` (e.g. `.claude/docs`),
    * which are normally omitted. Ignored when `path_prefix` is set (scoping is already explicit). `path_prefix`
@@ -79,6 +91,14 @@ export async function codebaseSearchPayload(
 ): Promise<CodebaseSearchPayload> {
   const lim = args.limit ?? 10;
   const candidateLimit = Math.max(lim, config.rerankCandidates);
+  const qcResolved = resolveQueryClassifierInput({
+    query_classifier: args.query_classifier,
+    search_focus: args.search_focus,
+  });
+  if (!qcResolved.ok) {
+    return { ok: false, error: qcResolved.error };
+  }
+  const queryClassifier = qcResolved.value;
   const pathQuery = parsePathQueryForSearch({
     ext: args.ext,
     lang: args.lang,
@@ -124,16 +144,20 @@ export async function codebaseSearchPayload(
     pathFilter,
     pathFilterNarrowing,
   });
+  let workingHits =
+    !config.rerankEnabled && queryClassifier !== 'auto'
+      ? applyQueryClassifierPrimarySort(hits, queryClassifier, config.workingDocsPathsRelPosix)
+      : hits;
   const defTarget =
     config.definitionBoostEnabled && config.definitionBoost > 0
       ? parseDefinitionIntentQuery(args.query)
       : undefined;
   const defBoost = defTarget ? config.definitionBoost : 0;
-  let ranked: RerankedHit[] | SearchHit[] = hits;
+  let ranked: RerankedHit[] | SearchHit[] = workingHits;
   if (config.rerankEnabled) {
     ranked = rerankSearchHits(
       args.query,
-      hits,
+      workingHits,
       {
         rerankDemotePathSubstrings: config.rerankDemotePathSubstrings,
         rerankDemotePerMatch: config.rerankDemotePerMatch,
@@ -141,9 +165,13 @@ export async function codebaseSearchPayload(
         frontendPathQueryBoost: config.frontendPathQueryBoost,
       },
       { definitionTarget: defTarget, definitionBoost: defBoost },
+      {
+        queryClassifier,
+        workingDocsPathsRelPosix: config.workingDocsPathsRelPosix,
+      },
     );
   } else if (defTarget) {
-    ranked = orderHitsByDefinitionBoost(hits, defTarget, defBoost);
+    ranked = orderHitsByDefinitionBoost(workingHits, defTarget, defBoost);
   }
   const toSearchHits = (r: (SearchHit | RerankedHit)[]): SearchHit[] =>
     r.map((h) => ({
@@ -203,11 +231,12 @@ export async function codebaseSearchPayload(
     };
   });
   if (!assessment) {
-    return { ok: true, hits: hitPayloads };
+    return { ok: true, hits: hitPayloads, query_classifier: queryClassifier };
   }
   return {
     ok: true,
     hits: hitPayloads,
+    query_classifier: queryClassifier,
     match_confidence: assessment.match_confidence,
     match_confidence_reasons: assessment.match_confidence_reasons,
     match_confidence_hint: matchConfidenceHint(assessment),

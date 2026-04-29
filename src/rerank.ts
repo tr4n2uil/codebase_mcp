@@ -1,4 +1,9 @@
 import type { AppConfig } from './config.js';
+import {
+  hitContentBucket,
+  type QueryClassifier,
+  queryClassifierPrior,
+} from './query-classifier.js';
 import type { SearchHit } from './store.js';
 
 export interface RerankedHit extends SearchHit {
@@ -13,6 +18,11 @@ export interface RerankDefinitionOptions {
    * Typical: ~0.12–0.22; capped implicitly by the rerank mix.
    */
   definitionBoost: number;
+}
+
+export interface RerankClassifierOptions {
+  queryClassifier: QueryClassifier;
+  workingDocsPathsRelPosix: string[];
 }
 
 function tokenize(query: string): string[] {
@@ -214,6 +224,7 @@ export function rerankSearchHits(
     'rerankDemotePathSubstrings' | 'rerankDemotePerMatch' | 'testPathQueryBoost' | 'frontendPathQueryBoost'
   >,
   definition?: RerankDefinitionOptions,
+  classifier?: RerankClassifierOptions,
 ): RerankedHit[] {
   const defTarget = definition?.definitionTarget;
   const defBoost = definition?.definitionBoost ?? 0;
@@ -236,10 +247,18 @@ export function rerankSearchHits(
             ? defBoost
             : 0
           : 0;
+      const qcPrior =
+        classifier && classifier.queryClassifier !== 'auto'
+          ? queryClassifierPrior(
+              hitContentBucket(hit.path, classifier.workingDocsPathsRelPosix),
+              classifier.queryClassifier,
+            )
+          : 0;
       const pathPrior =
         codePathPrior(hit.path, symbolIntent, testPathQueryIntent, frontendPathQueryIntent) +
         userPathDemote(hit.path, pathDemote.rerankDemotePathSubstrings, pathDemote.rerankDemotePerMatch) +
-        defPrior;
+        defPrior +
+        qcPrior;
       const rerankScore = symbolIntent
         ? hit.score * 0.35 + lexical * 0.2 + exact * 0.2 + exactPath * 0.15 + symbolBonus * 0.15 + pathPrior
         : hit.score * 0.5 + lexical * 0.2 + exact * 0.1 + pathHint * 0.1 + symbolBonus * 0.05 + pathPrior;

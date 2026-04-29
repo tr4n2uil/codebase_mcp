@@ -3,6 +3,7 @@ import type { AppConfig } from './config.js';
 import { atMostOneSymbolPerLine, mergeAstWithRegex } from './declaration-merge.js';
 import type { SymbolSpan } from './chunker-symbols.js';
 import { getDefinitionSpansFromTreeSitter } from './tree-sitter-definitions.js';
+import { tryChunkAstHierarchy } from './tree-sitter-ast-chunks.js';
 
 export interface TextChunk {
   startLine: number;
@@ -528,6 +529,12 @@ export async function chunkCodeAware(
     const yamlChunks = await chunkYamlTopLevel(lines, language, filePath);
     if (yamlChunks.length > 0) {
       return yamlChunks;
+    }
+  }
+  if (options?.defEngine !== 'regex' && options) {
+    const astHi = await tryChunkAstHierarchy(content, lines, filePath, chunkLines, options.treeSitterMaxBytes);
+    if (astHi && astHi.length > 0) {
+      return astHi.map((c) => ({ ...c, language }));
     }
   }
   const symbols = await extractSymbols(lines, language, content, filePath, options);

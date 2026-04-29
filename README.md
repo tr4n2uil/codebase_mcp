@@ -59,7 +59,7 @@ is there feature flag integrated?
 
 | Tool | Description |
 |------|-------------|
-| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`, optional `include_docs` to keep working-doc paths in **unscoped** search, `ext` / `lang` / `glob`); `path_prefix` scopes a subtree. Response JSON includes optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
+| `codebase_search` | Semantic search (`query`, optional `limit`, `path_prefix`, optional `include_docs` to keep working-doc paths in **unscoped** search, optional `query_classifier` / `search_focus` with values `auto` \| `code` \| `config` \| `docs` to bias toward source vs config vs markdown/working-docs trees, `ext` / `lang` / `glob`); `path_prefix` scopes a subtree. Response JSON includes `query_classifier` (resolved value) and optional match-quality fields (see `CODEBASE_MCP_MATCH_CONFIDENCE`) |
 | `codebase_find` | Alias of `codebase_search` with the same arguments and behavior (added for discoverability by code-search-oriented agents) |
 | `codebase_stats` | Chunk count, indexed file count, model, last scan time |
 | `codebase_reindex` | Optional `path` to reindex one file; omit for full **reconcile** |

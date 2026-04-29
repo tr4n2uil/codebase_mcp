@@ -95,7 +95,7 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
     version: '1.0.0',
   });
   const codebaseSearchDescription =
-    'Semantic search over the indexed repository: query embedded in-process; returns chunks (path, lines, snippet, scores, optional `match_confidence` / `definition_of`). Unscoped search may drop “working docs” (e.g. under `.claude/docs`); use optional args to scope, include those paths, or filter by file shape. Several filters together use AND.';
+    'Semantic search over the indexed repository: query embedded in-process; returns chunks (path, lines, snippet, scores, optional `match_confidence` / `definition_of`). Unscoped search may drop “working docs” (e.g. under `.claude/docs`); use optional args to scope, include those paths, filter by file shape, or set `query_classifier` / `search_focus` (`auto` | `code` | `config` | `docs`) to bias toward source vs config vs docs. Several filters together use AND.';
   const codebaseSearchInputSchema = {
     query: z.string().min(1).describe('Search text'),
     limit: z.number().int().min(1).max(50).optional().describe('Result cap (default 10)'),
@@ -118,6 +118,16 @@ export async function runMcpServer(config: AppConfig, backend: CodebaseMcpBacken
       .describe(
         'Glob filter (grep-like): filename globs like `*.rb` match nested files; path globs like `app/**/*.rb` match full paths',
       ),
+    query_classifier: z
+      .string()
+      .optional()
+      .describe(
+        'Bias results toward `code` (source files), `config` (json/yaml/toml/env/etc.), or `docs` (markdown + working-docs paths). Default `auto` = no extra bias. Same values as `search_focus`.',
+      ),
+    search_focus: z
+      .string()
+      .optional()
+      .describe('Alias of `query_classifier` (must match if both are set).'),
   };
 
   server.registerTool(

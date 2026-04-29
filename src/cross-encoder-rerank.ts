@@ -4,6 +4,9 @@ import { logInfo } from './log.js';
 import { applyOrtSessionCpuCaps } from './onnx-ort-caps.js';
 import type { SearchHit } from './store.js';
 
+/** Fusion rerank score from `rerankSearchHits`, preserved through CE for debug + match-confidence primary(). */
+export type CrossEncoderInputHit = SearchHit & { rerank_score?: number };
+
 type CrossEncoderBundle = {
   tokenizer: {
     (
@@ -91,7 +94,7 @@ async function getCrossEncoder(config: AppConfig): Promise<CrossEncoderBundle> {
 export async function runCrossEncoderRerank(
   config: AppConfig,
   query: string,
-  ranked: SearchHit[],
+  ranked: CrossEncoderInputHit[],
   poolK: number,
   returnTop: number,
 ): Promise<SearchHit[]> {
@@ -134,14 +137,19 @@ export async function runCrossEncoderRerank(
   const outHits: SearchHit[] = [];
   for (let i = 0; i < Math.min(returnTop, indexed.length); i++) {
     const { hit, logit } = indexed[i]!;
+    const ceOk = Number.isFinite(logit);
+    const displayScore = ceOk ? sigmoid(logit) : hit.score;
     outHits.push({
       path: hit.path,
       start_line: hit.start_line,
       end_line: hit.end_line,
       text: hit.text,
-      score: sigmoid(logit),
+      score: Number.isFinite(displayScore) ? displayScore : hit.score,
       ...(hit.definition_of ? { definition_of: hit.definition_of } : {}),
-      cross_encoder_logit: logit,
+      ...(typeof hit.rerank_score === 'number' && Number.isFinite(hit.rerank_score)
+        ? { rerank_score: hit.rerank_score }
+        : {}),
+      ...(ceOk ? { cross_encoder_logit: logit } : {}),
     });
   }
   return outHits;

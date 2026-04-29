@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { embedTexts, getEmbedder } from './embedder.js';
 import type { AppConfig } from './config.js';
-import { makeCrossEncoderPoolK, runCrossEncoderRerank } from './cross-encoder-rerank.js';
+import { makeCrossEncoderPoolK, runCrossEncoderRerank, type CrossEncoderInputHit } from './cross-encoder-rerank.js';
 import type { Indexer } from './indexer.js';
 import { readMeta } from './meta.js';
 import { logError } from './log.js';
@@ -173,7 +173,7 @@ export async function codebaseSearchPayload(
   } else if (defTarget) {
     ranked = orderHitsByDefinitionBoost(workingHits, defTarget, defBoost);
   }
-  const toSearchHits = (r: (SearchHit | RerankedHit)[]): SearchHit[] =>
+  const toCrossEncoderInput = (r: (SearchHit | RerankedHit)[]): CrossEncoderInputHit[] =>
     r.map((h) => ({
       path: h.path,
       start_line: h.start_line,
@@ -181,6 +181,9 @@ export async function codebaseSearchPayload(
       text: h.text,
       score: h.score,
       ...(h.definition_of ? { definition_of: h.definition_of } : {}),
+      ...('rerank_score' in h && typeof (h as RerankedHit).rerank_score === 'number'
+        ? { rerank_score: (h as RerankedHit).rerank_score }
+        : {}),
     }));
   let topHits: (SearchHit | RerankedHit)[] = ranked.slice(0, lim);
   if (config.crossEncoderEnabled) {
@@ -190,7 +193,7 @@ export async function codebaseSearchPayload(
         const ce = await runCrossEncoderRerank(
           config,
           args.query,
-          toSearchHits(ranked as (SearchHit | RerankedHit)[]),
+          toCrossEncoderInput(ranked as (SearchHit | RerankedHit)[]),
           poolK,
           lim,
         );

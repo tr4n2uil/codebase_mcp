@@ -611,5 +611,9 @@ export async function chunkCodeAware(
       chunks.push({ ...c, language });
     }
   }
+  if (chunks.length === 0 && lines.length > 0) {
+    const raw = await chunkByLinesFromLinesWithYields(lines, fallbackChunkLines, fallbackOverlap);
+    return raw.map((c) => ({ ...c, language, chunkMode: 'fallback_lexical' as const }));
+  }
   return chunks;
 }

@@ -21,6 +21,8 @@ export interface SearchHit {
   end_line: number;
   text: string;
   score: number;
+  /** Heuristic fusion score when heuristic rerank ran; preserved through cross-encoder when enabled. */
+  rerank_score?: number;
   /** Heuristic: declared symbol at the start of this chunk (if indexed with code-aware chunking). */
   definition_of?: string;
   /**

@@ -161,9 +161,15 @@ export function buildChunkerOptions(config: AppConfig): ChunkerOptions {
 }
 
 function detectLanguage(filePath: string): string {
-  const dot = filePath.lastIndexOf('.');
-  const ext = dot >= 0 ? filePath.slice(dot + 1).toLowerCase() : '';
+  const norm = filePath.replace(/\\/g, '/');
+  const seg = norm.split('/').pop() ?? norm;
+  const dot = seg.lastIndexOf('.');
+  const ext = dot > 0 ? seg.slice(dot + 1).toLowerCase() : '';
   if (!ext) {
+    const base = seg.toLowerCase();
+    if (base === 'rakefile' || base === 'gemfile') {
+      return 'ruby';
+    }
     return 'text';
   }
   if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'].includes(ext)) {
@@ -181,7 +187,7 @@ function detectLanguage(filePath: string): string {
   if (ext === 'rs') {
     return 'rust';
   }
-  if (ext === 'rb' || ext === 'rake' || ext === 'rbi') {
+  if (ext === 'rb' || ext === 'rake' || ext === 'rbi' || ext === 'gemspec') {
     return 'ruby';
   }
   if (ext === 'yml') {

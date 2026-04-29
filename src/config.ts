@@ -153,7 +153,7 @@ export interface AppConfig {
   ortWasmNumThreads: number;
   /**
    * When true, run a **cross-encoder** (e.g. BGE-reranker) on the top K heuristic/hybrid results and
-   * re-order before returning. Second ONNX model; first use downloads weights. `CODEBASE_MCP_CROSS_ENCODER=1`.
+   * re-order before returning. Second ONNX model; first use downloads weights. Default on; `CODEBASE_MCP_CROSS_ENCODER=0` to disable.
    */
   crossEncoderEnabled: boolean;
   /** Hugging Face / Xenova id for the cross-encoder ONNX model. Default: `Xenova/bge-reranker-base`. */
@@ -332,7 +332,7 @@ export function loadConfig(): AppConfig {
   const ortSequential = parseBool(process.env.CODEBASE_MCP_ORT_SEQUENTIAL, true);
   const ortW = Number.parseInt(process.env.CODEBASE_MCP_ORT_WASM_NUM_THREADS || '1', 10);
   const ortWasmNumThreads = Math.min(32, Math.max(1, Number.isFinite(ortW) && ortW > 0 ? ortW : 1));
-  const crossEncoderEnabled = parseBool(process.env.CODEBASE_MCP_CROSS_ENCODER, false);
+  const crossEncoderEnabled = parseBool(process.env.CODEBASE_MCP_CROSS_ENCODER, true);
   const crossEncoderModel = process.env.CODEBASE_MCP_CROSS_ENCODER_MODEL?.trim() || 'Xenova/bge-reranker-base';
   const rawCeTopK = Number.parseInt(process.env.CODEBASE_MCP_CROSS_ENCODER_TOP_K || '50', 10);
   const crossEncoderTopK = Math.min(200, Math.max(1, Number.isFinite(rawCeTopK) && rawCeTopK > 0 ? rawCeTopK : 50));

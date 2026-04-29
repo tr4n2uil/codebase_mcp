@@ -103,7 +103,7 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | `CODEBASE_MCP_RERANK_DEMOTE_PATHS` | _(empty)_ | **MCP** | Comma- or newline-separated **substrings** of repo-relative paths (case-insensitive) that **lower rank** in the reranker (e.g. cassettes/specs) without removing them from the index. Example: `vcr_cassettes,spec/cassettes,__snapshots__`. |
 | `CODEBASE_MCP_RERANK_DEMOTE_STRENGTH` | `0.1` | **MCP** | Per matching substring, subtracts from the path component of the rerank score (capped there). `0` disables the extra penalty (built-in heuristics like `codePathPrior` still apply). |
 | `CODEBASE_MCP_RERANK_DEBUG_SCORES` | `false` | **MCP** | Expose `rerank_score` in search output. When cross-encoder is on, also exposes `cross_encoder_logit`. |
-| `CODEBASE_MCP_CROSS_ENCODER` | `false` | **MCP** | `1`/`true`: after hybrid + heuristic rerank, re-order the top pool with a **cross-encoder** (default model `Xenova/bge-reranker-base`). Second ONNX model; first use may download weights. Improves top-1 quality at extra latency. |
+| `CODEBASE_MCP_CROSS_ENCODER` | `true` | **MCP** | After hybrid + heuristic rerank, re-order the top pool with a **cross-encoder** (default model `Xenova/bge-reranker-base`). Second ONNX model; first use may download weights. Improves top-1 quality at extra latency. Set `0`/`false` to disable. |
 | `CODEBASE_MCP_CROSS_ENCODER_MODEL` | `Xenova/bge-reranker-base` | **MCP** | Transformers.js–compatible cross-encoder id (ONNX on Hugging Face, e.g. **`Xenova/bge-reranker-base`**). |
 | `CODEBASE_MCP_CROSS_ENCODER_TOP_K` | `50` | **MCP** | Score at most this many top candidates with the cross-encoder (capped by pool size; at least `limit`). |
 | `CODEBASE_MCP_CROSS_ENCODER_BATCH` | `4` | **MCP** | Batch size for cross-encoder forward passes. |
@@ -131,7 +131,10 @@ Lower-CPU, less code-aware alternative (previous default):
 ```bash
 export CODEBASE_MCP_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2
 export CODEBASE_MCP_EMBEDDING_DIM=384
+export CODEBASE_MCP_CROSS_ENCODER=0
 ```
+
+You can set **`CODEBASE_MCP_CROSS_ENCODER=0`** alone to skip the cross-encoder without switching embedding models.
 
 When changing embedding model/dimension or code-aware chunking behavior, use a fresh `CODEBASE_MCP_INDEX_DIR` (or reindex) to avoid mixing old and new vector/chunk layouts.
 

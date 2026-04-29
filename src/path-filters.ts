@@ -139,3 +139,18 @@ export function isSafetyIgnored(relPosix: string): boolean {
 export function relativePosix(fromRootAbs: string, fileAbs: string): string {
   return toPosixPath(path.relative(fromRootAbs, fileAbs));
 }
+
+/**
+ * True when `absPath` is exactly `indexDirAbs` or inside it (LanceDB, `meta.json`, `.logs/`).
+ * Corpus indexing skips these paths so we never embed the vector store itself.
+ */
+export function isUnderIndexDataDir(absPath: string, indexDirAbs: string): boolean {
+  const child = path.resolve(absPath);
+  const root = path.resolve(indexDirAbs);
+  if (child === root) {
+    return true;
+  }
+  const sep = path.sep;
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  return child.startsWith(prefix);
+}

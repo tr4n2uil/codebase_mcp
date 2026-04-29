@@ -9,6 +9,7 @@ import type { MetaFile } from './meta.js';
 import { writeMeta } from './meta.js';
 import {
   isSafetyIgnored,
+  isUnderIndexDataDir,
   relativePosix,
   shouldConsiderExtension,
 } from './path-filters.js';
@@ -90,11 +91,15 @@ async function walkFiles(
   ig: Ignore,
   forceIncludes: string[],
   indexExclude: Ignore,
+  indexDirAbs: string,
 ): Promise<string[]> {
   const out: string[] = [];
   const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const abs = path.join(dir, entry.name);
+    if (isUnderIndexDataDir(abs, indexDirAbs)) {
+      continue;
+    }
     const rel = normalizeIgnorePath(relativePosix(watchRootAbs, abs));
     if (isSafetyIgnored(rel)) {
       continue;
@@ -107,7 +112,7 @@ async function walkFiles(
       if (dirIgnored && !isCoveredByForceInclude(rel, forceIncludes)) {
         continue;
       }
-      out.push(...(await walkFiles(abs, watchRootAbs, ig, forceIncludes, indexExclude)));
+      out.push(...(await walkFiles(abs, watchRootAbs, ig, forceIncludes, indexExclude, indexDirAbs)));
     } else {
       if (isIgnored(indexExclude, rel, false)) {
         continue;
@@ -218,6 +223,9 @@ export class Indexer {
 
   private async runIndexAbsoluteFileBody(absPath: string, source: IndexFileSource): Promise<void> {
     await yieldToEventLoop();
+    if (isUnderIndexDataDir(absPath, this.config.indexDirAbs)) {
+      return;
+    }
     const rel = normalizeIgnorePath(relativePosix(this.config.watchRootAbs, absPath));
     if (isSafetyIgnored(rel)) {
       return;
@@ -418,6 +426,7 @@ export class Indexer {
       this.ig,
       this.config.workingDocsPathsRelPosix,
       this.indexExclude,
+      this.config.indexDirAbs,
     );
     this.indexPassCount = 0;
     this.fullScanFilesCompleted = 0;
@@ -466,6 +475,7 @@ export class Indexer {
         this.ig,
         this.config.workingDocsPathsRelPosix,
         this.indexExclude,
+        this.config.indexDirAbs,
       ),
     );
     const rels = new Set(

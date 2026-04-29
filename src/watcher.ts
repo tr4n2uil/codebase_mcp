@@ -7,6 +7,7 @@ import type { AppConfig } from './config.js';
 import type { Indexer } from './indexer.js';
 import { isIgnored, normalizeIgnorePath } from './gitignore.js';
 import { logError, logInfo } from './log.js';
+import { isUnderIndexDataDir } from './path-filters.js';
 
 /** Path segments under the watch root we never attach watchers to (reduces EMFILE). */
 const WATCH_IGNORE_SEGMENTS = new Set([
@@ -39,6 +40,7 @@ function shouldIgnoreWatchPath(
   absolutePath: string,
   forceIncludes: string[],
   indexExclude: Ignore,
+  indexDirAbs: string,
   stats: { isDirectory: () => boolean } | undefined,
 ): boolean {
   const root = path.resolve(watchRootAbs);
@@ -46,6 +48,9 @@ function shouldIgnoreWatchPath(
   const rel = path.relative(root, abs);
   if (rel.startsWith('..')) {
     return false;
+  }
+  if (isUnderIndexDataDir(abs, indexDirAbs)) {
+    return true;
   }
   const relPosix = normalizeIgnorePath(toPosixPath(rel));
   if (stats !== undefined) {
@@ -68,7 +73,14 @@ function shouldIgnoreWatchPath(
 
 export function startWatcher(config: AppConfig, indexer: Indexer, indexExclude: Ignore) {
   const ignored = (p: string, stats?: { isDirectory: () => boolean }): boolean =>
-    shouldIgnoreWatchPath(config.watchRootAbs, p, config.workingDocsPathsRelPosix, indexExclude, stats);
+    shouldIgnoreWatchPath(
+      config.watchRootAbs,
+      p,
+      config.workingDocsPathsRelPosix,
+      indexExclude,
+      config.indexDirAbs,
+      stats,
+    );
 
   const watcher = chokidar.watch(config.watchRootAbs, {
     persistent: true,
@@ -101,7 +113,16 @@ export function startWatcher(config: AppConfig, indexer: Indexer, indexExclude: 
       return;
     }
     const filePath = path.resolve(rawPath);
-    if (shouldIgnoreWatchPath(config.watchRootAbs, filePath, config.workingDocsPathsRelPosix, indexExclude, undefined)) {
+    if (
+      shouldIgnoreWatchPath(
+        config.watchRootAbs,
+        filePath,
+        config.workingDocsPathsRelPosix,
+        indexExclude,
+        config.indexDirAbs,
+        undefined,
+      )
+    ) {
       return;
     }
     if (event === 'unlink') {

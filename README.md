@@ -71,7 +71,7 @@ All variables are read from `process.env` via `loadConfig()` in **each** Node pr
 | Variable | Default | Applies to | Purpose |
 |----------|---------|------------|---------|
 | `CODEBASE_MCP_ROOT` | `process.cwd()` when unset | **Both** | Absolute repo root. When unset, **each** process uses its **current working directory** at `loadConfig()` (so `cd` into the repo is enough for CLI; set explicitly for MCP/IDE if cwd is not the project). Must match between MCP and daemon. |
-| `CODEBASE_MCP_INDEX_DIR` | `<CODEBASE_MCP_ROOT>/.claude/codebase_mcp/db` | **Both** | Where LanceDB + `meta.json` live (default: under the repo’s `.claude/` tree). Must match between MCP and daemon. Override for a custom path or CI cache. |
+| `CODEBASE_MCP_INDEX_DIR` | `<CODEBASE_MCP_ROOT>/.claude/codebase_mcp/db` | **Both** | Where LanceDB + `meta.json` live (default: under the repo’s `.claude/` tree). Must match between MCP and daemon. Override for a custom path or CI cache. **Never indexed as corpus:** anything under this directory is skipped so the vector store is not embedded into itself. |
 | `CODEBASE_MCP_EMBEDDING_MODEL` | `Xenova/jina-embeddings-v2-base-en` | **Both** | Model id. Must match stored index metadata; used for **query** embed (MCP) and **ingest** embed (daemon). |
 | `CODEBASE_MCP_EMBEDDING_DIM` | `768` | **Both** | Vector dimension; must match model and index. |
 | `CODEBASE_MCP_EMBED_BACKEND` | `local` | **Both** | Embedding backend: `local` = Transformers.js ONNX in-process (default), `http` = external embedding service (TEI/Python/vLLM style). |
